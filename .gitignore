@@ -1,0 +1,24 @@
+# Compiled class files
+out/
+target/
+*.class
+
+# Maven
+*.log
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.eclipse/
+*.project
+*.classpath
+*.settings/
+nbproject/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
