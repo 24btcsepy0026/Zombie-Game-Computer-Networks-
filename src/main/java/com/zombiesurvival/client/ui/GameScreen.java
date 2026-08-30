@@ -31,10 +31,11 @@ public class GameScreen extends JFrame {
         add(hudPanel,   BorderLayout.SOUTH);
         add(chatPanel,  BorderLayout.EAST);
 
-        // Keyboard input for movement (attached to window, not sub-panel)
-        InputController ic = new InputController(client);
-        addKeyListener(ic);
+        // Keyboard input for movement — InputController registers its own listener
+        InputController ic = new InputController(client, this);
+        ic.start();
         setFocusable(true);
+        requestFocusInWindow();
 
         pack();
         setLocationRelativeTo(null);

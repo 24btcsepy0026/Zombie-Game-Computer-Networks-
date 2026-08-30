@@ -1,14 +1,24 @@
 package com.zombiesurvival.shared;
 
-public class MoveCommand implements NetworkMessage {
-    private static final long serialVersionUID = 1L;
-    private int dx, dy;
+import java.io.Serializable;
+
+public class MoveCommand implements NetworkMessage, Serializable {
+    private static final long serialVersionUID = 2L;
+
+    private final int     dx, dy;
+    private final boolean sprinting;
 
     public MoveCommand(int dx, int dy) {
-        this.dx = dx;
-        this.dy = dy;
+        this(dx, dy, false);
     }
 
-    public int getDx() { return dx; }
-    public int getDy() { return dy; }
+    public MoveCommand(int dx, int dy, boolean sprinting) {
+        this.dx        = dx;
+        this.dy        = dy;
+        this.sprinting = sprinting;
+    }
+
+    public int     getDx()         { return dx; }
+    public int     getDy()         { return dy; }
+    public boolean isSprinting()   { return sprinting; }
 }

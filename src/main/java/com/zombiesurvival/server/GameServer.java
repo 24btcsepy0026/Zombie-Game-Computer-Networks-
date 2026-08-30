@@ -6,6 +6,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.io.IOException;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class GameServer {
 
@@ -15,9 +16,11 @@ public class GameServer {
     private final CopyOnWriteArrayList<ClientHandler> clients = new CopyOnWriteArrayList<>();
     private final GameEngine gameEngine;
     private final ExecutorService pool = Executors.newCachedThreadPool();
+    private final AtomicLong playerCounter = new AtomicLong(1);
 
     public GameServer() {
-        this.gameEngine = new GameEngine(gameState, this);
+        // GameEngine(server, state)
+        this.gameEngine = new GameEngine(this, gameState);
     }
 
     public void start() {
@@ -29,7 +32,9 @@ public class GameServer {
             while (true) {
                 Socket socket = ss.accept();
                 System.out.println("[+] Client connected: " + socket.getInetAddress());
-                ClientHandler handler = new ClientHandler(socket, gameState, this);
+                String playerId = "p" + playerCounter.getAndIncrement();
+                ClientHandler handler = new ClientHandler(socket, this, gameState, playerId);
+                if (!handler.setupStreams()) { continue; }
                 clients.add(handler);
                 pool.execute(handler);
             }
@@ -38,21 +43,24 @@ public class GameServer {
         }
     }
 
-    /** Broadcast a message to every connected client. */
-    public void broadcastToAll(NetworkMessage msg) {
-        for (ClientHandler c : clients) c.sendMessage(msg);
+    /** Broadcast full game state snapshot to all clients. */
+    public void broadcastState(GameState state) {
+        GameStateUpdate upd = new GameStateUpdate(state);
+        for (ClientHandler c : clients) c.send(upd);
     }
 
-    /** Called when a client disconnects. */
+    /** Broadcast a chat line to all clients. */
+    public void broadcastChat(String text, String senderId) {
+        Player sender = gameState.getPlayer(senderId);
+        String name   = (sender != null) ? sender.getName() : senderId;
+        ChatBroadcast cb = new ChatBroadcast("[" + name + "] " + text);
+        for (ClientHandler c : clients) c.send(cb);
+    }
+
+    /** Called by ClientHandler when its socket closes. */
     public void removeClient(ClientHandler handler) {
         clients.remove(handler);
-        if (handler.getPlayerId() != null) {
-            Player p = gameState.getPlayer(handler.getPlayerId());
-            String name = (p != null) ? p.getName() : "Unknown";
-            gameState.removePlayer(handler.getPlayerId());
-            gameState.addChatMessage("** " + name + " disconnected **");
-            System.out.println("[-] " + name + " disconnected. Players: " + clients.size());
-        }
+        System.out.println("[-] Client removed. Active: " + clients.size());
     }
 
     public CopyOnWriteArrayList<ClientHandler> getClients() { return clients; }

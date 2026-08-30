@@ -5,128 +5,169 @@ import com.zombiesurvival.shared.*;
 import java.io.*;
 import java.net.Socket;
 
+/**
+ * Handles one connected client: reads incoming messages and applies movement.
+ * Sprint multiplier: 1.8× speed when sprinting with stamina remaining.
+ * Safe-zone zombie penalty: 60 % reduced speed.
+ */
 public class ClientHandler implements Runnable {
 
-    private final Socket socket;
-    private final GameState gameState;
-    private final GameServer server;
-    private ObjectOutputStream out;
-    private ObjectInputStream  in;
-    private String playerId;
-    private String playerName;
+    private static final int BASE_SPEED     = 5;
+    private static final int SPRINT_PCTX10  = 18; // 1.8×  → multiply by 18, divide by 10
+    private static final int BOOST_PCTX10   = 15; // 1.5× speed boost
+    private static final int ZOMBIE_SAFE_PCT = 40; // 40 % of normal in safe zone
+    private static final int BOUNDS_PAD     = 2;
 
-    public ClientHandler(Socket socket, GameState gameState, GameServer server) {
-        this.socket    = socket;
-        this.gameState = gameState;
-        this.server    = server;
+    private final Socket             socket;
+    private final GameServer         server;
+    private final GameState          state;
+    private final String             playerId;
+    private ObjectOutputStream       out;
+    private ObjectInputStream        in;
+
+    public ClientHandler(Socket socket, GameServer server, GameState state, String playerId) {
+        this.socket   = socket;
+        this.server   = server;
+        this.state    = state;
+        this.playerId = playerId;
+    }
+
+    // ── Connection setup ──────────────────────────────────────────────────────
+
+    public boolean setupStreams() {
         try {
-            // Output must be created before input to avoid deadlock
             out = new ObjectOutputStream(socket.getOutputStream());
             in  = new ObjectInputStream(socket.getInputStream());
+            return true;
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("[ClientHandler] Stream setup failed: " + e.getMessage());
+            return false;
         }
     }
 
-    public String getPlayerId() { return playerId; }
+    public void send(Object msg) {
+        if (out == null) return;
+        try {
+            out.writeObject(msg);
+            out.flush();
+            out.reset();
+        } catch (IOException ignored) {}
+    }
+
+    // ── Main receive loop ─────────────────────────────────────────────────────
 
     @Override
     public void run() {
         try {
-            while (true) {
-                Object obj = in.readObject();
-                if (obj instanceof NetworkMessage) {
-                    handleMessage((NetworkMessage) obj);
-                }
+            // Wait for JoinRequest
+            Object first = in.readObject();
+            if (first instanceof JoinRequest jr) {
+                Player p = new Player(playerId, jr.getPlayerName(),
+                                      GameState.TILE_SIZE * 2,
+                                      GameState.TILE_SIZE * 2,
+                                      Player.Role.SURVIVOR);
+                state.getPlayers().put(playerId, p);
+                send(new AssignIdMessage(playerId));
+                System.out.println("[ClientHandler] " + jr.getPlayerName() + " joined as " + playerId);
             }
-        } catch (IOException | ClassNotFoundException e) {
+
+            // Main message loop
+            while (!socket.isClosed()) {
+                Object msg = in.readObject();
+                if      (msg instanceof MoveCommand mc) handleMove(mc);
+                else if (msg instanceof ChatMessage  cm) server.broadcastChat(cm.getMessage(), playerId);
+            }
+        } catch (EOFException | java.net.SocketException ignored) {
             // Client disconnected
+        } catch (Exception e) {
+            System.err.println("[ClientHandler] Error: " + e.getMessage());
         } finally {
-            server.removeClient(this);
-            try { socket.close(); } catch (IOException ignored) {}
+            cleanup();
         }
     }
 
-    private void handleMessage(NetworkMessage msg) {
-        if (msg instanceof JoinRequest) {
-            JoinRequest jr = (JoinRequest) msg;
-            this.playerName = jr.getPlayerName();
-            this.playerId   = java.util.UUID.randomUUID().toString();
+    // ── Movement handler ──────────────────────────────────────────────────────
 
-            // Spawn at a default position; GameEngine.startGame() will reassign
-            int spawnX = 1 * GameState.TILE_SIZE + 2;
-            int spawnY = 1 * GameState.TILE_SIZE + 2;
-            Player newPlayer = new Player(playerId, playerName, spawnX, spawnY, Player.Role.SURVIVOR);
-            gameState.addPlayer(newPlayer);
+    private void handleMove(MoveCommand mc) {
+        if (state.getCurrentPhase() != GameState.Phase.PLAYING) return;
+        Player p = state.getPlayer(playerId);
+        if (p == null || p.getHealth() <= 0) return;
 
-            // Tell this client its own ID
-            sendMessage(new AssignIdMessage(playerId));
+        int dx = mc.getDx();
+        int dy = mc.getDy();
+        if (dx == 0 && dy == 0) { p.regenStamina(1); return; }
 
-            // Broadcast join notification
-            String joinMsg = "** " + playerName + " joined the game **";
-            gameState.addChatMessage(joinMsg);
-            server.broadcastToAll(new ChatBroadcast(joinMsg));
-            System.out.println("[JOIN] " + playerName + " (" + playerId + ")");
+        // ── Determine speed multiplier ────────────────────────────────────────
+        int cx = p.getX() + Player.SIZE / 2;
+        int cy = p.getY() + Player.SIZE / 2;
+        boolean inSafe  = GameState.isSafeZoneAt(cx, cy);
+        boolean zombie  = p.isInfected();
+        boolean sprint  = mc.isSprinting() && !zombie && p.getStamina() > 0;
+        boolean boosted = p.hasSpeedBoost();
 
-        } else if (msg instanceof MoveCommand) {
-            Player p = gameState.getPlayer(playerId);
-            if (p == null || gameState.getCurrentPhase() != GameState.Phase.PLAYING) return;
-
-            MoveCommand mc = (MoveCommand) msg;
-            int dx = mc.getDx();
-            int dy = mc.getDy();
-
-            // Slow zombies in the safe zone
-            if (p.isInfected()) {
-                int cx = p.getX() + Player.SIZE / 2;
-                int cy = p.getY() + Player.SIZE / 2;
-                if (gameState.isSafeZoneAt(cx, cy)) {
-                    dx = dx / 2;
-                    dy = dy / 2;
-                }
-            }
-
-            int newX = Math.max(0, Math.min(GameState.CANVAS_W - Player.SIZE, p.getX() + dx));
-            int newY = Math.max(0, Math.min(GameState.CANVAS_H - Player.SIZE, p.getY() + dy));
-
-            // Wall collision: test all 4 corners
-            if (!wallHit(newX, newY)) {
-                p.setX(newX);
-                p.setY(newY);
-            } else {
-                // Try sliding: move only along X
-                if (!wallHit(newX, p.getY())) {
-                    p.setX(newX);
-                } else if (!wallHit(p.getX(), newY)) {
-                    p.setY(newY);
-                }
-            }
-
-        } else if (msg instanceof ChatMessage) {
-            ChatMessage cm = (ChatMessage) msg;
-            String line = "[" + playerName + "]: " + cm.getMessage();
-            gameState.addChatMessage(line);
-            server.broadcastToAll(new ChatBroadcast(line));
+        // Stamina drain/regen
+        if (sprint) {
+            p.drainStamina(2);
+        } else if (!mc.isSprinting()) {
+            p.regenStamina(1);
         }
+
+        // Scale dx/dy: base=5, sprint=9, speedboost=7.5, zombie-in-safe=2
+        int pct = 10; // default 1.0× (multiply by pct, divide by 10)
+        if (zombie && inSafe) {
+            pct = 4;  // 0.4× — greatly slowed in safe zone
+        } else if (sprint && boosted) {
+            pct = 20; // 2.0× — sprint + boost
+        } else if (sprint) {
+            pct = SPRINT_PCTX10; // 1.8×
+        } else if (boosted) {
+            pct = BOOST_PCTX10;  // 1.5×
+        }
+
+        int scaledDx = dx * pct / 10;
+        int scaledDy = dy * pct / 10;
+
+        // Ensure at least 1-pixel movement in intended direction if non-zero
+        if (dx != 0 && scaledDx == 0) scaledDx = dx > 0 ? 1 : -1;
+        if (dy != 0 && scaledDy == 0) scaledDy = dy > 0 ? 1 : -1;
+
+        // ── Collision-aware movement ───────────────────────────────────────────
+        int newX = clampAndCollide(p.getX(), p.getY(), scaledDx, 0, true);
+        int newY = clampAndCollide(newX,     p.getY(), 0, scaledDy, false);
+
+        p.setX(newX);
+        p.setY(newY);
     }
 
-    private boolean wallHit(int x, int y) {
-        int s = Player.SIZE - 1;
-        return gameState.isWallAt(x,     y    )
-            || gameState.isWallAt(x + s, y    )
-            || gameState.isWallAt(x,     y + s)
-            || gameState.isWallAt(x + s, y + s);
+    /**
+     * Moves along one axis, stopping before walls.
+     * Returns the new x (if horizontal) or y (if vertical).
+     */
+    private int clampAndCollide(int px, int py, int dx, int dy, boolean horizontal) {
+        int nx = px + dx, ny = py + dy;
+
+        // Canvas bounds
+        nx = Math.max(BOUNDS_PAD, Math.min(GameState.CANVAS_W - Player.SIZE - BOUNDS_PAD, nx));
+        ny = Math.max(BOUNDS_PAD, Math.min(GameState.CANVAS_H - Player.SIZE - BOUNDS_PAD, ny));
+
+        // Wall check (all 4 corners of the player bounding box)
+        int s = Player.SIZE;
+        boolean blocked =
+            GameState.isWallAt(nx,         ny        ) ||
+            GameState.isWallAt(nx + s - 1, ny        ) ||
+            GameState.isWallAt(nx,         ny + s - 1) ||
+            GameState.isWallAt(nx + s - 1, ny + s - 1);
+
+        if (blocked) return horizontal ? px : py;
+        return horizontal ? nx : ny;
     }
 
-    public void sendMessage(NetworkMessage msg) {
-        try {
-            synchronized (out) {
-                out.reset();
-                out.writeObject(msg);
-                out.flush();
-            }
-        } catch (IOException e) {
-            // client likely disconnected
-        }
+    // ── Cleanup ───────────────────────────────────────────────────────────────
+
+    private void cleanup() {
+        Player p = state.getPlayers().remove(playerId);
+        System.out.println("[ClientHandler] " + (p != null ? p.getName() : playerId) + " disconnected.");
+        server.removeClient(this);
+        try { socket.close(); } catch (IOException ignored) {}
     }
 }
