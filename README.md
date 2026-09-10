@@ -1,6 +1,24 @@
-# ☣ Zombie Survival — Multiplayer Network Game
+# ☣ Zombie Escape — Multiplayer Network Game
 
 A real-time multiplayer survival game built with **Java** to demonstrate **Computer Networks** concepts including TCP/IP, Socket Programming, Client-Server Architecture, and Multithreading.
+
+---
+
+## 🎮 New Features: Flashy Main Menu!
+
+The game now features an eye-catching main menu with:
+- **🧟 Zombies in all 4 corners** with animated glowing red eyes
+- **"ZOMBIE ESCAPE" title** in blood red with dripping effect and pulsing glow
+- **Menu Options:**
+  - **Start Game** - Connect to a server and jump into action
+  - **Invite Members** - Get server connection info to share with friends
+  - **Settings** - Configure game preferences
+  - **Exit** - Quit the game
+
+**Controls:**
+- Use ↑↓ arrows or W/S keys to navigate
+- Press ENTER or SPACE to select
+- Mouse hover and click also supported
 
 ---
 
@@ -18,6 +36,25 @@ A real-time multiplayer survival game built with **Java** to demonstrate **Compu
 ## 🖥️ Screenshot
 
 ```
+Main Menu:
+┌─────────────────────────────────────────────────────────────┐
+│  🧟 Zombie (animated)                    Zombie (animated) 🧟│
+│                                                             │
+│                  ═══════════════════════                    │
+│                  ║ ZOMBIE ESCAPE ║                          │
+│                  ═══════════════════════                    │
+│                     (Glowing Red Title)                     │
+│                Can you survive the night?                   │
+│                                                             │
+│                  ▶ Start Game (selected)                    │
+│                    Invite Members                           │
+│                    Settings                                 │
+│                    Exit                                     │
+│                                                             │
+│  🧟 Zombie (animated)                    Zombie (animated) 🧟│
+└─────────────────────────────────────────────────────────────┘
+
+Game Screen:
 ┌─────────────────────────────────────────────────────────────┐
 │  [Lobby]  ZOMBIE SURVIVAL  — Waiting for players...         │
 │                                                             │
@@ -83,10 +120,11 @@ src/main/java/com/zombiesurvival/
 │   ├── ClientHandler.java    — Per-client thread: reads messages, applies movement
 │   └── GameEngine.java       — Core game loop: 30 TPS, physics, pickups, scoring
 │
-└── client/
-    ├── GameClient.java       — Connect dialog, receive loop, sends messages
+├── client/
+    ├── GameClient.java       — Main menu, connect dialog, receive loop, sends messages
     ├── InputController.java  — WASD/Arrow → MoveCommand @ 30 Hz
     └── ui/
+        ├── MainMenuScreen.java — Flashy menu with animated zombies and title
         ├── GameScreen.java   — Main JFrame (canvas + HUD + chat)
         ├── GameCanvas.java   — Renders: tiles, players, pickups, minimap, lobby, scoreboard
         ├── HudPanel.java     — Bottom HUD: role, health bar, timer, score
@@ -100,6 +138,22 @@ src/main/java/com/zombiesurvival/
 ### Requirements
 - Java 17 or higher
 - No external libraries (pure Java SE)
+
+### Quick Start (Windows)
+
+#### Option 1: Use Batch Scripts (Easiest)
+1. **Start the Server:**
+   ```bash
+   run-server.bat
+   ```
+
+2. **Start the Client(s):**
+   ```bash
+   run-client.bat
+   ```
+   The flashy main menu will appear! Select "Start Game" and enter server details.
+
+#### Option 2: Manual Compilation
 
 ### 1. Compile
 ```bash
@@ -116,14 +170,15 @@ java -cp out com.zombiesurvival.server.GameServer
 ```bash
 java -cp out com.zombiesurvival.client.GameClient
 ```
-A dialog will prompt for:
+**New!** The flashy main menu appears with zombies in corners:
+- Select **"Start Game"** to enter connection details
 - **Server IP** — `localhost` for same machine, or LAN IP (e.g. `192.168.1.5`) for network play
 - **Your Name** — display name in-game
 
 > 🟢 Game starts automatically when **2 or more players** connect!
 
 ### 4. For Two Players on the Same PC
-Open **two separate terminals** and run the client command in each.
+Open **two separate terminals** and run the client command in each, or double-click `run-client.bat` twice.
 
 ---
 
