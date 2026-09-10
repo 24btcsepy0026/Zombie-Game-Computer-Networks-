@@ -47,6 +47,7 @@ public class GameCanvas extends JPanel {
     private volatile GameState  gameState;
     private volatile String     myPlayerId;
     private int                 animTick = 0;
+    private int                 mouseX = -1, mouseY = -1;
 
     // Per-player facing angle tracked from position deltas
     private final Map<String, Double>  facingAngles  = new ConcurrentHashMap<>();
@@ -63,6 +64,12 @@ public class GameCanvas extends JPanel {
         tileGrassB = makeTileGrass(1);
         tileWall   = makeTileWall();
         tileSafe   = makeTileSafe();
+        // Mouse tracking for menu hover effects
+        addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override public void mouseMoved(java.awt.event.MouseEvent e) {
+                mouseX = e.getX(); mouseY = e.getY();
+            }
+        });
         // ~30 FPS render loop
         new javax.swing.Timer(33, e -> { animTick++; repaint(); }).start();
     }
@@ -131,70 +138,102 @@ public class GameCanvas extends JPanel {
     // ═══════════════════════════════════════════════════════════════════════
 
     private void renderLobby(Graphics2D g, GameState gs) {
-        // ── Background ──
-        g.setColor(new Color(5, 9, 5));
+        // ── Dark atmospheric background ──
+        g.setColor(new Color(8, 5, 12));
         g.fillRect(0, 0, W, H);
 
-        // Atmospheric radial fog
+        // ── Pulsing red/green atmospheric fog ──
         Paint saved = g.getPaint();
-        g.setPaint(new RadialGradientPaint(W * 0.28f, H * 0.38f, 290,
-            new float[]{0f,1f}, new Color[]{new Color(28,70,28,38), new Color(0,0,0,0)}));
+        float fogPulse = 0.5f + 0.5f * (float) Math.sin(animTick * 0.04);
+        g.setPaint(new RadialGradientPaint(W * 0.5f, H * 0.32f, 340,
+            new float[]{0f, 1f}, new Color[]{new Color(130, 8, 8, (int)(42 * fogPulse)), new Color(0, 0, 0, 0)}));
         g.fillRect(0, 0, W, H);
-        g.setPaint(new RadialGradientPaint(W * 0.72f, H * 0.60f, 270,
-            new float[]{0f,1f}, new Color[]{new Color(90,22,22,30), new Color(0,0,0,0)}));
+        g.setPaint(new RadialGradientPaint(W * 0.2f, H * 0.75f, 260,
+            new float[]{0f, 1f}, new Color[]{new Color(8, 80, 12, (int)(32 * fogPulse)), new Color(0, 0, 0, 0)}));
+        g.fillRect(0, 0, W, H);
+        g.setPaint(new RadialGradientPaint(W * 0.8f, H * 0.65f, 240,
+            new float[]{0f, 1f}, new Color[]{new Color(90, 8, 8, (int)(28 * fogPulse)), new Color(0, 0, 0, 0)}));
         g.fillRect(0, 0, W, H);
         g.setPaint(saved);
 
-        // Floating particles (deterministic positions, phase animated)
-        Random rng = new Random(77L);
-        for (int i = 0; i < 90; i++) {
+        // ── Floating blood/ash particles ──
+        Random rng = new Random(99L);
+        for (int i = 0; i < 130; i++) {
             int px = rng.nextInt(W), py = rng.nextInt(H);
-            float phase = (float) Math.sin(animTick * 0.048 + i * 0.38);
-            int a = (int)(28 + 38 * phase);
-            g.setColor(new Color(45, 160, 55, Math.max(0, a)));
-            g.fillOval(px, py, 2, 2);
+            float phase = (float) Math.sin(animTick * 0.032 + i * 0.45);
+            int a = (int)(18 + 42 * phase);
+            boolean isRed = rng.nextBoolean();
+            g.setColor(isRed ? new Color(185, 25, 25, Math.max(0, Math.min(255, a)))
+                             : new Color(28, 130, 38, Math.max(0, Math.min(255, a))));
+            int drift = (int)(5 * Math.sin(animTick * 0.018 + i * 0.7));
+            g.fillOval(px + drift, py, 2, 2);
         }
 
-        // ── Biohazard glyph ──
-        float glph = 0.5f + 0.5f * (float) Math.sin(animTick * 0.065);
-        g.setFont(new Font("Segoe UI Symbol", Font.PLAIN, (int)(85 + 9 * glph)));
-        g.setColor(new Color(165, 20, 20, (int)(75 + 65 * glph)));
-        drawCentered(g, "\u2623", W / 2, 126);
+        // ── Zombies in 4 corners ──
+        drawCornerZombie(g, 18, 18, 1);
+        drawCornerZombie(g, W - 72, 18, 2);
+        drawCornerZombie(g, 18, H - 130, 3);
+        drawCornerZombie(g, W - 72, H - 130, 4);
 
-        // ── Title ──
-        g.setFont(new Font("Impact", Font.PLAIN, 62));
-        // Shadow layer
-        g.setColor(new Color(0, 0, 0, 190));
-        drawCentered(g, "ZOMBIE SURVIVAL", W / 2 + 4, 196 + 4);
-        // Gradient fill (simulate by two color draws)
-        g.setColor(new Color(235, 50, 50));
-        drawCentered(g, "ZOMBIE SURVIVAL", W / 2, 196);
+        // ── Title glow ──
+        float titlePulse = 0.6f + 0.4f * (float) Math.sin(animTick * 0.055);
+        saved = g.getPaint();
+        g.setPaint(new RadialGradientPaint(W / 2f, 105, 220,
+            new float[]{0f, 1f}, new Color[]{new Color(210, 0, 0, (int)(55 * titlePulse)), new Color(0, 0, 0, 0)}));
+        g.fillRect(0, 30, W, 150);
+        g.setPaint(saved);
+
+        // ── Title: "ZOMBIE ESCAPE" ──
+        g.setFont(new Font("Impact", Font.BOLD, 74));
+        // Deep shadow
+        g.setColor(new Color(0, 0, 0, 210));
+        drawCentered(g, "ZOMBIE ESCAPE", W / 2 + 5, 118 + 5);
+        // Main red title
+        g.setColor(new Color(220, 18, 18));
+        drawCentered(g, "ZOMBIE ESCAPE", W / 2, 118);
+        // Bright highlight overlay (pulsing)
+        g.setColor(new Color(255, 55, 55, (int)(70 + 70 * titlePulse)));
+        drawCentered(g, "ZOMBIE ESCAPE", W / 2, 116);
 
         // ── Subtitle ──
         g.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        g.setColor(new Color(100, 160, 100));
-        drawCentered(g, "Real-time Multiplayer  \u2022  Java TCP/IP  \u2022  Computer Networks", W / 2, 220);
+        g.setColor(new Color(170, 75, 75));
+        drawCentered(g, "Survive the horde  \u2022  Multiplayer  \u2022  TCP/IP", W / 2, 148);
 
-        // Divider
-        g.setColor(new Color(50, 85, 50));
-        g.fillRect(W / 2 - 170, 232, 340, 1);
+        // ── Divider ──
+        g.setColor(new Color(110, 18, 18, 110));
+        g.fillRect(W / 2 - 190, 162, 380, 2);
+
+        // ── Menu Buttons ──
+        int btnW = 280, btnH = 48;
+        int btnX = (W - btnW) / 2;
+        drawMenuButton(g, "\u25B6  START GAME", btnX, 185, btnW, btnH,
+                       new Color(18, 155, 38), new Color(28, 210, 50));
+        drawMenuButton(g, "\u2709  INVITE MEMBERS", btnX, 248, btnW, btnH,
+                       new Color(38, 85, 200), new Color(48, 110, 245));
 
         // ── Player List ──
         Collection<Player> players = gs.getPlayers().values();
-        int listY = 258;
+        int listY = 330;
         g.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        g.setColor(new Color(95, 168, 95));
-        drawCentered(g, "CONNECTED PLAYERS  (" + players.size() + ")", W / 2, listY);
+        g.setColor(new Color(190, 55, 55));
+        drawCentered(g, "\u26A1 CONNECTED PLAYERS  (" + players.size() + ")", W / 2, listY);
+        g.setColor(new Color(85, 18, 18, 90));
+        g.fillRect(W / 2 - 140, listY + 8, 280, 1);
 
         for (Player p : players) {
-            listY += 36;
+            listY += 34;
             boolean isMe = p.getId().equals(myPlayerId);
 
-            // Avatar circle
-            int ax = W / 2 - 115, ay = listY - 18;
-            g.setColor(new Color(18, 52, 18));
+            // Avatar glow for self
+            int ax = W / 2 - 110, ay = listY - 16;
+            if (isMe) {
+                g.setColor(new Color(210, 35, 35, 35));
+                g.fillOval(ax - 4, ay - 4, 35, 35);
+            }
+            g.setColor(new Color(42, 10, 10));
             g.fillOval(ax, ay, 27, 27);
-            g.setColor(isMe ? new Color(55, 185, 70) : new Color(42, 148, 55));
+            g.setColor(isMe ? new Color(225, 45, 45) : new Color(145, 38, 38));
             g.fillOval(ax + 2, ay + 2, 23, 23);
             g.setFont(new Font("Segoe UI", Font.BOLD, 12));
             g.setColor(Color.WHITE);
@@ -203,30 +242,141 @@ public class GameCanvas extends JPanel {
 
             // Name
             g.setFont(new Font("Segoe UI", isMe ? Font.BOLD : Font.PLAIN, 14));
-            g.setColor(isMe ? Color.WHITE : new Color(172, 210, 172));
-            g.drawString(p.getName() + (isMe ? "  \u2605 YOU" : ""), W / 2 - 78, listY);
+            g.setColor(isMe ? Color.WHITE : new Color(210, 165, 165));
+            g.drawString(p.getName() + (isMe ? "  \u2605 YOU" : ""), W / 2 - 75, listY);
         }
 
-        // ── Waiting text ──
-        float wp = 0.5f + 0.5f * (float) Math.sin(animTick * 0.072);
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        g.setColor(new Color(130, 195, 130, (int)(80 + 175 * wp)));
-        drawCentered(g, "\u25CF  Waiting for players...  (minimum 2 to start)", W / 2, H - 98);
+        // ── Status indicator ──
+        if (players.size() < 2) {
+            float wp = 0.5f + 0.5f * (float) Math.sin(animTick * 0.072);
+            g.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            g.setColor(new Color(210, 75, 75, (int)(80 + 175 * wp)));
+            drawCentered(g, "\u2620  Waiting for players...  (minimum 2 to start)", W / 2, H - 55);
+        } else {
+            float wp = 0.5f + 0.5f * (float) Math.sin(animTick * 0.1);
+            g.setFont(new Font("Segoe UI", Font.BOLD, 15));
+            g.setColor(new Color(38, 225, 58, (int)(120 + 135 * wp)));
+            drawCentered(g, "\u2714  Ready to go!  Game starts now!", W / 2, H - 55);
+        }
 
-        // ── Instructions panel ──
-        int bx = W / 2 - 225, by = H - 84;
-        g.setColor(new Color(12, 22, 12));
-        g.fillRoundRect(bx, by, 450, 62, 10, 10);
-        g.setColor(new Color(38, 62, 38));
+        // ── Controls hint bar ──
+        g.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        g.setColor(new Color(105, 65, 65));
+        drawCentered(g, "Move: WASD / Arrows  \u2022  Chat: Click panel \u2192 type \u2192 Enter  \u2022  Collect \u2764 Medkits & \uD83D\uDD11 Keys", W / 2, H - 28);
+    }
+
+    // ── Corner zombie sprite ────────────────────────────────────────────────
+
+    private void drawCornerZombie(Graphics2D g, int cx, int cy, int id) {
+        float pulse = 0.5f + 0.5f * (float) Math.sin(animTick * 0.055 + id * 1.5);
+        int armWave = (int)(5 * Math.sin(animTick * 0.065 + id * 1.2));
+        int bodyBob = (int)(2 * Math.sin(animTick * 0.04 + id * 0.9));
+        cy += bodyBob;
+
+        // Eerie red aura
+        Paint saved = g.getPaint();
+        g.setPaint(new RadialGradientPaint(cx + 27f, cy + 40f, 65,
+            new float[]{0f, 1f}, new Color[]{new Color(170, 8, 8, (int)(32 + 22 * pulse)), new Color(0, 0, 0, 0)}));
+        g.fillOval(cx - 20, cy - 15, 95, 110);
+        g.setPaint(saved);
+
+        // Ground shadow
+        g.setColor(new Color(0, 0, 0, 55));
+        g.fillOval(cx + 6, cy + 92, 42, 12);
+
+        // Legs (shambling)
+        g.setColor(new Color(36, 50, 26));
+        g.fillRoundRect(cx + 14, cy + 62, 10, 30, 4, 4);
+        g.fillRoundRect(cx + 30, cy + 64, 10, 28, 4, 4);
+
+        // Body
+        g.setColor(new Color(46, 70, 34));
+        g.fillRoundRect(cx + 9, cy + 28, 36, 40, 10, 10);
+        // Tattered rips
+        g.setColor(new Color(32, 48, 22));
+        g.drawLine(cx + 14, cy + 38, cx + 20, cy + 55);
+        g.drawLine(cx + 36, cy + 34, cx + 40, cy + 52);
+        g.setColor(new Color(90, 15, 10, 80));
+        g.fillOval(cx + 22, cy + 48, 8, 6);
+
+        // Arms (reaching out with animation)
+        g.setColor(new Color(48, 72, 36));
+        g.setStroke(new BasicStroke(5, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.drawLine(cx + 9,  cy + 38, cx - 6,  cy + 30 + armWave);
+        g.drawLine(cx - 6,  cy + 30 + armWave, cx - 10, cy + 22 + armWave);
+        g.drawLine(cx + 45, cy + 38, cx + 60, cy + 30 - armWave);
+        g.drawLine(cx + 60, cy + 30 - armWave, cx + 64, cy + 22 - armWave);
+        // Claw fingers
+        g.setStroke(new BasicStroke(2, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.drawLine(cx - 10, cy + 22 + armWave, cx - 14, cy + 17 + armWave);
+        g.drawLine(cx - 10, cy + 22 + armWave, cx - 8,  cy + 16 + armWave);
+        g.drawLine(cx + 64, cy + 22 - armWave, cx + 68, cy + 17 - armWave);
+        g.drawLine(cx + 64, cy + 22 - armWave, cx + 62, cy + 16 - armWave);
         g.setStroke(new BasicStroke(1.0f));
-        g.drawRoundRect(bx, by, 450, 62, 10, 10);
-        g.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        g.setColor(new Color(115, 185, 115));
-        drawCentered(g, "CONTROLS", W / 2, by + 18);
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        g.setColor(new Color(148, 185, 148));
-        drawCentered(g, "Move: WASD / Arrow Keys     Chat: Click chat panel \u2192 type \u2192 Enter", W / 2, by + 36);
-        drawCentered(g, "Collect \u2764 Medkits to restore HP  \u2022  Collect \uD83D\uDD11 Keys for bonus score", W / 2, by + 52);
+
+        // Head
+        g.setColor(new Color(52, 78, 40));
+        g.fillOval(cx + 12, cy + 2, 30, 30);
+        // Scars
+        g.setColor(new Color(88, 20, 15, 120));
+        g.drawLine(cx + 18, cy + 6, cx + 22, cy + 14);
+
+        // Eyes (bright red, pulsing glow)
+        int eyeAlpha = (int)(190 + 65 * pulse);
+        g.setColor(new Color(255, 12, 0, eyeAlpha));
+        g.fillOval(cx + 18, cy + 13, 8, 7);
+        g.fillOval(cx + 30, cy + 13, 8, 7);
+        // Bright pupil center
+        g.setColor(new Color(255, 80, 40, eyeAlpha));
+        g.fillOval(cx + 20, cy + 15, 4, 4);
+        g.fillOval(cx + 32, cy + 15, 4, 4);
+        // Eye glow effect
+        saved = g.getPaint();
+        g.setPaint(new RadialGradientPaint(cx + 27f, cy + 17f, 22,
+            new float[]{0f, 1f}, new Color[]{new Color(255, 0, 0, (int)(50 * pulse)), new Color(0, 0, 0, 0)}));
+        g.fillOval(cx + 8, cy + 2, 38, 34);
+        g.setPaint(saved);
+
+        // Mouth (open, teeth visible)
+        g.setColor(new Color(22, 6, 6));
+        g.fillArc(cx + 20, cy + 24, 14, 9, 0, -180);
+        g.setColor(new Color(210, 210, 190));
+        g.fillRect(cx + 23, cy + 24, 2, 3);
+        g.fillRect(cx + 27, cy + 24, 2, 3);
+        g.fillRect(cx + 31, cy + 24, 2, 3);
+    }
+
+    // ── Menu button with hover glow ─────────────────────────────────────────
+
+    private void drawMenuButton(Graphics2D g, String text, int x, int y, int bw, int bh,
+                                Color baseColor, Color hoverColor) {
+        boolean hovered = mouseX >= x && mouseX <= x + bw && mouseY >= y && mouseY <= y + bh;
+        Color col = hovered ? hoverColor : baseColor;
+
+        // Hover glow
+        if (hovered) {
+            Paint saved = g.getPaint();
+            g.setPaint(new RadialGradientPaint(x + bw / 2f, y + bh / 2f, bw / 2f + 30,
+                new float[]{0f, 1f},
+                new Color[]{new Color(col.getRed(), col.getGreen(), col.getBlue(), 45), new Color(0, 0, 0, 0)}));
+            g.fillRect(x - 35, y - 25, bw + 70, bh + 50);
+            g.setPaint(saved);
+        }
+
+        // Button body
+        g.setColor(new Color(col.getRed() / 6, col.getGreen() / 6, col.getBlue() / 6, 225));
+        g.fill(new RoundRectangle2D.Float(x, y, bw, bh, 14, 14));
+
+        // Border
+        g.setColor(new Color(col.getRed(), col.getGreen(), col.getBlue(), hovered ? 210 : 110));
+        g.setStroke(new BasicStroke(hovered ? 2.2f : 1.4f));
+        g.draw(new RoundRectangle2D.Float(x, y, bw, bh, 14, 14));
+        g.setStroke(new BasicStroke(1.0f));
+
+        // Text
+        g.setFont(new Font("Segoe UI", Font.BOLD, 17));
+        g.setColor(hovered ? Color.WHITE : new Color(210, 210, 210));
+        drawCentered(g, text, x + bw / 2, y + bh / 2 + 6);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -695,7 +845,7 @@ public class GameCanvas extends JPanel {
     private static BufferedImage makeTileGrass(int variant) {
         BufferedImage img = new BufferedImage(TS, TS, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
-        Color base = (variant == 0) ? new Color(34, 94, 34) : new Color(41, 105, 41);
+        Color base = (variant == 0) ? new Color(18, 58, 18) : new Color(24, 68, 24);
         g.setColor(base);
         g.fillRect(0, 0, TS, TS);
         Random rng = new Random(variant == 0 ? 111222L : 333444L);
@@ -703,7 +853,7 @@ public class GameCanvas extends JPanel {
         for (int i = 0; i < 22; i++) {
             int gx = 1 + rng.nextInt(TS - 3), gy = 1 + rng.nextInt(TS - 5);
             int sh = rng.nextInt(3);
-            Color gc = sh == 0 ? new Color(24, 75, 24) : sh == 1 ? base : new Color(50, 120, 50);
+            Color gc = sh == 0 ? new Color(12, 42, 12) : sh == 1 ? base : new Color(30, 78, 30);
             g.setColor(new Color(gc.getRed(), gc.getGreen(), gc.getBlue(), 82));
             int bh = 3 + rng.nextInt(4);
             g.fillRect(gx,     gy,     1, bh);
@@ -712,7 +862,7 @@ public class GameCanvas extends JPanel {
         // Dirt/pebble patches
         for (int i = 0; i < 6; i++) {
             int gx = rng.nextInt(TS - 3), gy = rng.nextInt(TS - 2);
-            g.setColor(new Color(40, 68, 30, 52));
+            g.setColor(new Color(22, 40, 16, 52));
             g.fillOval(gx, gy, 4, 3);
         }
         g.dispose();
