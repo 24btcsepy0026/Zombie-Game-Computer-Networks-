@@ -67,7 +67,8 @@ public class GameEngine implements Runnable {
     // ── Waiting phase ─────────────────────────────────────────────────────────
 
     private void tickWaiting() {
-        if (gameState.getPlayers().size() >= 1) { // Start with 1 or more players
+        // Start immediately when any player connects
+        if (gameState.getPlayers().size() >= 1) {
             startGame();
         }
     }
