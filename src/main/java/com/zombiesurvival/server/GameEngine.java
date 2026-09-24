@@ -83,30 +83,40 @@ public class GameEngine implements Runnable {
         gameState.setGameOverCountdown(RESET_DELAY_S);
         spawnPickups();
 
-        // Assign roles & positions
+        // ALL PLAYERS ARE SURVIVORS
         Random rand = new Random();
-        int zombieIdx = rand.nextInt(players.size());
-        int spawnIdx  = 0; // survivor spawn counter (skips index 0 = zombie spawn)
+        int spawnIdx = 0;
 
-        for (int i = 0; i < players.size(); i++) {
-            Player p = players.get(i);
+        for (Player p : players) {
             p.setHealth(100);
-            if (i == zombieIdx) {
-                p.setRole(Player.Role.ZOMBIE);
-                int[] sp = SPAWNS[0];
-                p.setX(sp[0] * GameState.TILE_SIZE + 2);
-                p.setY(sp[1] * GameState.TILE_SIZE + 2);
-            } else {
-                p.setRole(Player.Role.SURVIVOR);
-                spawnIdx++;
-                int[] sp = SPAWNS[spawnIdx % (SPAWNS.length - 1) + 1];
-                p.setX(sp[0] * GameState.TILE_SIZE + 2);
-                p.setY(sp[1] * GameState.TILE_SIZE + 2);
-            }
+            p.setRole(Player.Role.SURVIVOR);
+            p.setInfected(false);
+            
+            // Assign spawn positions (skip first spawn - reserved for zombies)
+            int[] sp = SPAWNS[(spawnIdx % (SPAWNS.length - 1)) + 1];
+            p.setX(sp[0] * GameState.TILE_SIZE + 2);
+            p.setY(sp[1] * GameState.TILE_SIZE + 2);
+            spawnIdx++;
+        }
+
+        // CREATE AI ZOMBIES (3-7 random zombies)
+        int numZombies = 3 + rand.nextInt(5); // 3 to 7 zombies
+        for (int i = 0; i < numZombies; i++) {
+            String zombieId = "zombie_" + uuid();
+            String zombieName = "Zombie #" + (i + 1);
+            
+            // Spawn at first position or random safe position
+            int[] sp = SPAWNS[0];
+            int zx = (sp[0] + rand.nextInt(3) - 1) * GameState.TILE_SIZE + rand.nextInt(20);
+            int zy = (sp[1] + rand.nextInt(3) - 1) * GameState.TILE_SIZE + rand.nextInt(20);
+            
+            Player zombie = new Player(zombieId, zombieName, zx, zy, Player.Role.ZOMBIE);
+            zombie.setInfected(true);
+            gameState.getPlayers().put(zombieId, zombie);
         }
 
         gameState.setCurrentPhase(GameState.Phase.PLAYING);
-        String startMsg = "=== GAME STARTED! " + players.get(zombieIdx).getName() + " is the ZOMBIE! ===";
+        String startMsg = "=== GAME STARTED! Survive against " + numZombies + " zombies! ===";
         gameState.addChatMessage(startMsg);
         server.broadcastToAll(new ChatBroadcast(startMsg));
         System.out.println(startMsg);
@@ -157,6 +167,9 @@ public class GameEngine implements Runnable {
             for (Player s : survivors) s.addScore(1);
         }
 
+        // AI: Move zombies towards nearest survivor
+        moveAIZombies(zombies, survivors);
+
         // Zombie ↔ Survivor collision: deal damage
         for (Player z : zombies) {
             for (Player s : survivors) {
@@ -199,11 +212,60 @@ public class GameEngine implements Runnable {
         checkWinConditions(survivors, zombies);
     }
 
+    private void moveAIZombies(List<Player> zombies, List<Player> survivors) {
+        if (survivors.isEmpty()) return;
+        
+        for (Player zombie : zombies) {
+            // Only move AI zombies (not player-controlled ones)
+            if (!zombie.getId().startsWith("zombie_")) continue;
+            
+            // Find nearest survivor
+            Player nearest = null;
+            double minDist = Double.MAX_VALUE;
+            
+            for (Player survivor : survivors) {
+                double dx = survivor.getX() - zombie.getX();
+                double dy = survivor.getY() - zombie.getY();
+                double dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = survivor;
+                }
+            }
+            
+            if (nearest != null) {
+                // Move towards nearest survivor
+                int dx = nearest.getX() - zombie.getX();
+                int dy = nearest.getY() - zombie.getY();
+                double dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > 0) {
+                    // Normalize and move at zombie speed (1.5 pixels per tick)
+                    double speed = 1.5;
+                    int moveX = (int) (speed * dx / dist);
+                    int moveY = (int) (speed * dy / dist);
+                    
+                    int newX = zombie.getX() + moveX;
+                    int newY = zombie.getY() + moveY;
+                    
+                    // Check if new position is valid (not wall)
+                    int cx = newX + Player.SIZE / 2;
+                    int cy = newY + Player.SIZE / 2;
+                    
+                    if (!gameState.isWallAt(cx, cy)) {
+                        zombie.setX(newX);
+                        zombie.setY(newY);
+                    }
+                }
+            }
+        }
+    }
+
     private void infectPlayer(Player survivor, Player byZombie) {
-        survivor.setRole(Player.Role.ZOMBIE);
-        survivor.setHealth(100);
-        byZombie.addScore(20);
-        String msg = "** " + survivor.getName() + " was infected! **";
+        // Player dies instead of becoming zombie (we have AI zombies only)
+        survivor.setHealth(0);
+        String msg = "** " + survivor.getName() + " was killed by " + byZombie.getName() + "! **";
         gameState.addChatMessage(msg);
         server.broadcastToAll(new ChatBroadcast(msg));
         System.out.println(msg);
@@ -221,8 +283,17 @@ public class GameEngine implements Runnable {
     }
 
     private void checkWinConditions(List<Player> survivors, List<Player> zombies) {
-        if (survivors.isEmpty() && !zombies.isEmpty()) {
-            endGame("☣  ZOMBIES WIN!  All survivors infected.");
+        // Check if any survivors are still alive (health > 0)
+        boolean anyAlive = false;
+        for (Player s : survivors) {
+            if (s.getHealth() > 0) {
+                anyAlive = true;
+                break;
+            }
+        }
+        
+        if (!anyAlive) {
+            endGame("☣  ZOMBIES WIN!  All survivors eliminated.");
         } else if (gameState.getTimeRemaining() <= 0) {
             endGame("🏆  SURVIVORS WIN!  Time ran out.");
         }
