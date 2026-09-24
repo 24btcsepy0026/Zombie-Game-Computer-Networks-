@@ -94,10 +94,8 @@ public class GameClient {
     // ── Entry point ───────────────────────────────────────────────────────────
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            GameClient client = new GameClient();
-            client.showMainMenu();
-        });
+        // Direct connection - skip menu
+        showConnectionDialog();
     }
 
     private void showMainMenu() {
@@ -120,7 +118,9 @@ public class GameClient {
         menuScreen.requestFocusInWindow();
     }
 
-    private void showConnectionDialog() {
+    private static void showConnectionDialog() {
+        GameClient client = new GameClient();
+        
         JTextField ipField = new JTextField("localhost", 20);
         JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 20);
         
@@ -131,7 +131,7 @@ public class GameClient {
         panel.add(new JLabel("Your Name:"));   
         panel.add(nameField);
 
-        int result = JOptionPane.showConfirmDialog(menuFrame, panel,
+        int result = JOptionPane.showConfirmDialog(null, panel,
             "☣ Connect to Server", JOptionPane.OK_CANCEL_OPTION,
             JOptionPane.PLAIN_MESSAGE);
 
@@ -141,7 +141,9 @@ public class GameClient {
             if (ip.isEmpty())   ip   = "localhost";
             if (name.isEmpty()) name = "Player";
 
-            start(ip, name);
+            client.start(ip, name);
+        } else {
+            System.exit(0);
         }
     }
 
