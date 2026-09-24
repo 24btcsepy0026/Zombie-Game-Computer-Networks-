@@ -64,7 +64,7 @@ public class GameClient {
                     if (currentMenuScreen != null && currentMenuScreen.isVisible()) {
                         GameState state = gsu.getState();
                         java.util.List<String> playerNames = new java.util.ArrayList<>();
-                        for (Player p : state.getPlayers()) {
+                        for (Player p : state.getPlayers().values()) {
                             playerNames.add(p.getName());
                         }
                         SwingUtilities.invokeLater(() -> 
