@@ -152,6 +152,18 @@ public class GameClient {
                 gameScreen.updateState(lastGameState, myPlayerId);
             }
         });
+        
+        // Force server to start the game immediately
+        // Send a dummy move command to trigger game start
+        new Thread(() -> {
+            try {
+                Thread.sleep(500); // Wait for game screen to open
+                // Request game start by sending any command
+                sendMessage(new MoveCommand(0, 0));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     private void showConnectionDialogAndWait() {
