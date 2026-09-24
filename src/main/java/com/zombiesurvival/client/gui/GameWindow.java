@@ -24,8 +24,8 @@ public class GameWindow extends JFrame {
         setLocationRelativeTo(null); // center on screen
 
         // Setup input controller
-        InputController inputController = new InputController(client);
-        addKeyListener(inputController);
+        InputController inputController = new InputController(client, this);
+        inputController.start();
         
         // Timer for steady rendering (approx 60 FPS)
         Timer timer = new Timer(16, e -> gamePanel.repaint());

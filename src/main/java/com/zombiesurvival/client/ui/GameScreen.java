@@ -10,6 +10,9 @@ import java.awt.*;
 /**
  * Main application JFrame.
  * Layout:  CENTER=GameCanvas | EAST=ChatPanel | SOUTH=HudPanel
+ *
+ * The InputController is registered on this frame AND linked to the
+ * GameCanvas so it receives camera-offset updates for aim direction.
  */
 public class GameScreen extends JFrame {
 
@@ -21,7 +24,7 @@ public class GameScreen extends JFrame {
         super("☣ Zombie Survival");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-        setBackground(new Color(10, 12, 18));
+        setBackground(new Color(8, 10, 16));
 
         gameCanvas = new GameCanvas();
         hudPanel   = new HudPanel();
@@ -31,9 +34,11 @@ public class GameScreen extends JFrame {
         add(hudPanel,   BorderLayout.SOUTH);
         add(chatPanel,  BorderLayout.EAST);
 
-        // Keyboard input for movement — InputController registers its own listener
+        // InputController handles keyboard + mouse; link to canvas for camera offset
         InputController ic = new InputController(client, this);
+        gameCanvas.setInputController(ic);
         ic.start();
+
         setFocusable(true);
         requestFocusInWindow();
 
@@ -42,13 +47,11 @@ public class GameScreen extends JFrame {
         setResizable(false);
     }
 
-    /**
-     * Called from the network thread → dispatches to EDT.
-     */
+    /** Called from network thread → dispatch to EDT. */
     public void updateState(GameState state, String myPlayerId) {
         SwingUtilities.invokeLater(() -> {
-            gameCanvas.setGameState(state);
             gameCanvas.setMyPlayerId(myPlayerId);
+            gameCanvas.setGameState(state);
             hudPanel.setData(state, myPlayerId);
             hudPanel.repaint();
         });

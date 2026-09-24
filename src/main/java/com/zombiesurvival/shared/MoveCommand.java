@@ -1,17 +1,13 @@
 package com.zombiesurvival.shared;
 
-import java.io.Serializable;
-
-public class MoveCommand implements NetworkMessage, Serializable {
+/** Movement delta sent from client to server every input tick (~30 Hz). */
+public class MoveCommand implements NetworkMessage {
     private static final long serialVersionUID = 2L;
 
     private final int     dx, dy;
     private final boolean sprinting;
 
-    public MoveCommand(int dx, int dy) {
-        this(dx, dy, false);
-    }
-
+    public MoveCommand(int dx, int dy)                    { this(dx, dy, false); }
     public MoveCommand(int dx, int dy, boolean sprinting) {
         this.dx        = dx;
         this.dy        = dy;

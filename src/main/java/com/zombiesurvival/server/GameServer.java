@@ -33,7 +33,7 @@ public class GameServer {
                 Socket socket = ss.accept();
                 System.out.println("[+] Client connected: " + socket.getInetAddress());
                 String playerId = "p" + playerCounter.getAndIncrement();
-                ClientHandler handler = new ClientHandler(socket, this, gameState, playerId);
+                ClientHandler handler = new ClientHandler(socket, this, gameState, gameEngine, playerId);
                 if (!handler.setupStreams()) { continue; }
                 clients.add(handler);
                 pool.execute(handler);
