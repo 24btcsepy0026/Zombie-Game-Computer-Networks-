@@ -251,7 +251,7 @@ public class GameCanvas extends JPanel {
             float wp = 0.5f + 0.5f * (float) Math.sin(animTick * 0.072);
             g.setFont(new Font("Segoe UI", Font.PLAIN, 14));
             g.setColor(new Color(210, 75, 75, (int)(80 + 175 * wp)));
-            drawCentered(g, "\u2620  Waiting for players...  (minimum 2 to start)", W / 2, H - 55);
+            drawCentered(g, "\u2620  Waiting for players...  (press Start when ready)", W / 2, H - 55);
         } else {
             float wp = 0.5f + 0.5f * (float) Math.sin(animTick * 0.1);
             g.setFont(new Font("Segoe UI", Font.BOLD, 15));

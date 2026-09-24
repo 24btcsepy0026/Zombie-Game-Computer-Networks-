@@ -67,14 +67,14 @@ public class GameEngine implements Runnable {
     // ── Waiting phase ─────────────────────────────────────────────────────────
 
     private void tickWaiting() {
-        if (gameState.getPlayers().size() >= 2) {
+        if (gameState.getPlayers().size() >= 1) { // Start with 1 or more players
             startGame();
         }
     }
 
     private void startGame() {
         List<Player> players = new ArrayList<>(gameState.getPlayers().values());
-        if (players.size() < 2) return;
+        if (players.size() < 1) return; // Allow 1 or more players
 
         // Reset state
         tickCount = 0;
