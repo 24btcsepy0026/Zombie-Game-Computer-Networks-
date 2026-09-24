@@ -23,6 +23,7 @@ public class GameClient {
     private ObjectInputStream  in;
     private GameScreen         gameScreen;
     private JFrame             menuFrame;
+    private MainMenuScreen     currentMenuScreen;
     private String             myPlayerId;
 
     public void start(String serverIp, String playerName) {
@@ -104,23 +105,23 @@ public class GameClient {
         menuFrame = new JFrame("ZOMBIE ESCAPE");
         menuFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         
-        MainMenuScreen menuScreen = new MainMenuScreen(option -> {
+        currentMenuScreen = new MainMenuScreen(option -> {
             switch (option) {
-                case "Start Game" -> showConnectionDialogAndWait(menuScreen);
+                case "Start Game" -> showConnectionDialogAndWait();
                 case "Invite Members" -> showInviteDialog();
                 case "Settings" -> showSettingsDialog();
                 case "Exit" -> System.exit(0);
             }
         });
         
-        menuFrame.add(menuScreen);
+        menuFrame.add(currentMenuScreen);
         menuFrame.pack();
         menuFrame.setLocationRelativeTo(null);
         menuFrame.setVisible(true);
-        menuScreen.requestFocusInWindow();
+        currentMenuScreen.requestFocusInWindow();
     }
 
-    private void showConnectionDialogAndWait(MainMenuScreen menuScreen) {
+    private void showConnectionDialogAndWait() {
         JTextField ipField = new JTextField("localhost", 20);
         JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 20);
         
@@ -142,7 +143,9 @@ public class GameClient {
             if (name.isEmpty()) name = "Player";
 
             // Switch to waiting mode - show only "Invite Members"
-            menuScreen.setWaitingMode(true);
+            if (currentMenuScreen != null) {
+                currentMenuScreen.setWaitingMode(true);
+            }
             
             // Connect to server
             start(ip, name);
