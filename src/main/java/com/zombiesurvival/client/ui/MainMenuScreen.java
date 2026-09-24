@@ -334,7 +334,7 @@ public class MainMenuScreen extends JPanel {
     public void setWaitingMode(boolean waiting) {
         this.waitingForConnection = waiting;
         if (waiting) {
-            this.menuOptions = new String[]{"Invite Members"};
+            this.menuOptions = new String[]{"Go to Lobby", "Invite Members"};
         } else {
             this.menuOptions = new String[]{"Start Game", "Settings", "Exit"};
         }

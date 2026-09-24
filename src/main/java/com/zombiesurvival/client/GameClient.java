@@ -25,6 +25,7 @@ public class GameClient {
     private JFrame             menuFrame;
     private MainMenuScreen     currentMenuScreen;
     private String             myPlayerId;
+    private GameState          lastGameState;
 
     public void start(String serverIp, String playerName) {
         try {
@@ -60,9 +61,11 @@ public class GameClient {
                 if (obj instanceof AssignIdMessage aim) {
                     myPlayerId = aim.getPlayerId();
                 } else if (obj instanceof GameStateUpdate gsu) {
+                    GameState state = gsu.getState();
+                    lastGameState = state; // Store for later
+                    
                     // Update connected players list on menu
                     if (currentMenuScreen != null && currentMenuScreen.isVisible()) {
-                        GameState state = gsu.getState();
                         java.util.List<String> playerNames = new java.util.ArrayList<>();
                         for (Player p : state.getPlayers().values()) {
                             playerNames.add(p.getName());
@@ -71,9 +74,15 @@ public class GameClient {
                             currentMenuScreen.setConnectedPlayers(playerNames)
                         );
                     }
-                    // Don't show game screen - stay on menu
+                    
+                    // Update game screen if it's open
+                    if (gameScreen != null) {
+                        gameScreen.updateState(state, myPlayerId);
+                    }
                 } else if (obj instanceof ChatBroadcast cb) {
-                    // Ignore chat - we're staying on menu
+                    if (gameScreen != null) {
+                        gameScreen.getChatPanel().addMessage(cb.getText());
+                    }
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
@@ -113,6 +122,7 @@ public class GameClient {
         currentMenuScreen = new MainMenuScreen(option -> {
             switch (option) {
                 case "Start Game" -> showConnectionDialogAndWait();
+                case "Go to Lobby" -> goToGameLobby();
                 case "Invite Members" -> showInviteDialog();
                 case "Settings" -> showSettingsDialog();
                 case "Exit" -> System.exit(0);
@@ -124,6 +134,24 @@ public class GameClient {
         menuFrame.setLocationRelativeTo(null);
         menuFrame.setVisible(true);
         currentMenuScreen.requestFocusInWindow();
+    }
+
+    private void goToGameLobby() {
+        // Close menu frame
+        if (menuFrame != null) {
+            menuFrame.dispose();
+        }
+
+        // Show game screen
+        SwingUtilities.invokeLater(() -> {
+            gameScreen = new GameScreen(this);
+            gameScreen.setVisible(true);
+            
+            // If we have stored game state, update it
+            if (lastGameState != null) {
+                gameScreen.updateState(lastGameState, myPlayerId);
+            }
+        });
     }
 
     private void showConnectionDialogAndWait() {
