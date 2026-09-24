@@ -67,6 +67,11 @@ public class ClientHandler implements Runnable {
             gameState.addChatMessage(joinMsg);
             server.broadcastToAll(new ChatBroadcast(joinMsg));
             System.out.println("[JOIN] " + playerName + " (" + playerId + ")");
+            
+            // IMMEDIATELY start the game if in WAITING phase
+            if (gameState.getCurrentPhase() == GameState.Phase.WAITING) {
+                server.startGameNow();
+            }
 
         } else if (msg instanceof MoveCommand) {
             Player p = gameState.getPlayer(playerId);

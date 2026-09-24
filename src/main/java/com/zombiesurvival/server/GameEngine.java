@@ -72,6 +72,13 @@ public class GameEngine implements Runnable {
             startGame();
         }
     }
+    
+    /** Public method to force game start immediately (called from server). */
+    public void forceStartGame() {
+        if (gameState.getCurrentPhase() == GameState.Phase.WAITING) {
+            startGame();
+        }
+    }
 
     private void startGame() {
         List<Player> players = new ArrayList<>(gameState.getPlayers().values());

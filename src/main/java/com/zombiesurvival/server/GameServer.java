@@ -42,6 +42,11 @@ public class GameServer {
     public void broadcastToAll(NetworkMessage msg) {
         for (ClientHandler c : clients) c.sendMessage(msg);
     }
+    
+    /** Force the game to start immediately. */
+    public void startGameNow() {
+        gameEngine.forceStartGame();
+    }
 
     /** Called when a client disconnects. */
     public void removeClient(ClientHandler handler) {
