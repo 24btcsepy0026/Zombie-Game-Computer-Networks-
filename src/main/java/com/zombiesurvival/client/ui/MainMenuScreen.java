@@ -18,6 +18,8 @@ public class MainMenuScreen extends JPanel {
     private int selectedOption = 0;
     private String[] menuOptions;
     private boolean waitingForConnection = false;
+    private String playerName = "";
+    private java.util.List<String> connectedPlayers = new java.util.ArrayList<>();
     
     private MenuSelectionListener selectionListener;
     private float pulseAngle = 0f;
@@ -293,6 +295,32 @@ public class MainMenuScreen extends JPanel {
                 g2.drawString(menuOptions[i], centerX - textWidth / 2, y);
             }
         }
+        
+        // Show connected players if in waiting mode
+        if (waitingForConnection && !connectedPlayers.isEmpty()) {
+            g2.setFont(new Font("Arial", Font.BOLD, 18));
+            g2.setColor(new Color(200, 200, 200));
+            int playersY = startY + menuOptions.length * spacing + 50;
+            String playersText = "Connected Players: " + connectedPlayers.size();
+            int playersWidth = g2.getFontMetrics().stringWidth(playersText);
+            g2.drawString(playersText, centerX - playersWidth / 2, playersY);
+            
+            // List player names
+            g2.setFont(new Font("Arial", Font.PLAIN, 16));
+            g2.setColor(new Color(150, 150, 150));
+            for (int i = 0; i < connectedPlayers.size(); i++) {
+                String name = connectedPlayers.get(i);
+                boolean isYou = name.equals(playerName);
+                if (isYou) {
+                    g2.setColor(HIGHLIGHT);
+                    name += " (YOU)";
+                } else {
+                    g2.setColor(new Color(150, 150, 150));
+                }
+                int nameWidth = g2.getFontMetrics().stringWidth("• " + name);
+                g2.drawString("• " + name, centerX - nameWidth / 2, playersY + 30 + i * 25);
+            }
+        }
     }
     
     private void drawInstructions(Graphics2D g2, int w, int h) {
@@ -311,6 +339,16 @@ public class MainMenuScreen extends JPanel {
             this.menuOptions = new String[]{"Start Game", "Settings", "Exit"};
         }
         this.selectedOption = 0;
+        repaint();
+    }
+    
+    public void setPlayerName(String name) {
+        this.playerName = name;
+        repaint();
+    }
+    
+    public void setConnectedPlayers(java.util.List<String> players) {
+        this.connectedPlayers = new java.util.ArrayList<>(players);
         repaint();
     }
     

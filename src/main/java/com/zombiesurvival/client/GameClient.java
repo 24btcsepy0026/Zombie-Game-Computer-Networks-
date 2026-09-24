@@ -32,23 +32,19 @@ public class GameClient {
             out    = new ObjectOutputStream(socket.getOutputStream());
             in     = new ObjectInputStream(socket.getInputStream());
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(null,
+            JOptionPane.showMessageDialog(menuFrame,
                 "Could not connect to server at " + serverIp + ":" + PORT +
                 "\n\nMake sure the server is running.",
                 "Connection Failed", JOptionPane.ERROR_MESSAGE);
-            return; // Return to menu instead of exiting
+            // Reset menu to initial state
+            if (currentMenuScreen != null) {
+                currentMenuScreen.setWaitingMode(false);
+            }
+            return;
         }
 
-        // Close menu frame if open
-        if (menuFrame != null) {
-            menuFrame.dispose();
-        }
-
-        // Build and show UI on EDT
-        SwingUtilities.invokeLater(() -> {
-            gameScreen = new GameScreen(this);
-            gameScreen.setVisible(true);
-        });
+        // DON'T close menu frame - keep it visible
+        // DON'T show game screen - stay on menu
 
         // Send join request
         sendMessage(new JoinRequest(playerName));
@@ -64,11 +60,20 @@ public class GameClient {
                 if (obj instanceof AssignIdMessage aim) {
                     myPlayerId = aim.getPlayerId();
                 } else if (obj instanceof GameStateUpdate gsu) {
-                    if (gameScreen != null)
-                        gameScreen.updateState(gsu.getState(), myPlayerId);
+                    // Update connected players list on menu
+                    if (currentMenuScreen != null && currentMenuScreen.isVisible()) {
+                        GameState state = gsu.getState();
+                        java.util.List<String> playerNames = new java.util.ArrayList<>();
+                        for (Player p : state.getPlayers()) {
+                            playerNames.add(p.getName());
+                        }
+                        SwingUtilities.invokeLater(() -> 
+                            currentMenuScreen.setConnectedPlayers(playerNames)
+                        );
+                    }
+                    // Don't show game screen - stay on menu
                 } else if (obj instanceof ChatBroadcast cb) {
-                    if (gameScreen != null)
-                        gameScreen.getChatPanel().addMessage(cb.getText());
+                    // Ignore chat - we're staying on menu
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
@@ -145,6 +150,7 @@ public class GameClient {
             // Switch to waiting mode - show only "Invite Members"
             if (currentMenuScreen != null) {
                 currentMenuScreen.setWaitingMode(true);
+                currentMenuScreen.setPlayerName(name);
             }
             
             // Connect to server
