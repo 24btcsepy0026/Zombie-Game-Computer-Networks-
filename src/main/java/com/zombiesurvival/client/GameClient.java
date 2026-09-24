@@ -94,8 +94,10 @@ public class GameClient {
     // ── Entry point ───────────────────────────────────────────────────────────
 
     public static void main(String[] args) {
-        // Direct connection - skip menu
-        showConnectionDialog();
+        SwingUtilities.invokeLater(() -> {
+            GameClient client = new GameClient();
+            client.showMainMenu();
+        });
     }
 
     private void showMainMenu() {
@@ -104,7 +106,7 @@ public class GameClient {
         
         MainMenuScreen menuScreen = new MainMenuScreen(option -> {
             switch (option) {
-                case "Start Game" -> showConnectionDialog();
+                case "Start Game" -> startGameDirectly();
                 case "Invite Members" -> showInviteDialog();
                 case "Settings" -> showSettingsDialog();
                 case "Exit" -> System.exit(0);
@@ -116,6 +118,13 @@ public class GameClient {
         menuFrame.setLocationRelativeTo(null);
         menuFrame.setVisible(true);
         menuScreen.requestFocusInWindow();
+    }
+
+    private void startGameDirectly() {
+        // Connect directly with default values
+        String serverIp = "localhost";
+        String playerName = System.getProperty("user.name", "Player");
+        start(serverIp, playerName);
     }
 
     private static void showConnectionDialog() {
