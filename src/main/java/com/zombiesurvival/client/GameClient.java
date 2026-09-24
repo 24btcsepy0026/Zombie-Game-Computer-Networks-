@@ -106,7 +106,7 @@ public class GameClient {
         
         MainMenuScreen menuScreen = new MainMenuScreen(option -> {
             switch (option) {
-                case "Start Game" -> startGameDirectly();
+                case "Start Game" -> showConnectionDialogAndWait(menuScreen);
                 case "Invite Members" -> showInviteDialog();
                 case "Settings" -> showSettingsDialog();
                 case "Exit" -> System.exit(0);
@@ -120,11 +120,37 @@ public class GameClient {
         menuScreen.requestFocusInWindow();
     }
 
+    private void showConnectionDialogAndWait(MainMenuScreen menuScreen) {
+        JTextField ipField = new JTextField("localhost", 20);
+        JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 20);
+        
+        JPanel panel = new JPanel(new java.awt.GridLayout(2, 2, 10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.add(new JLabel("Server IP:"));   
+        panel.add(ipField);
+        panel.add(new JLabel("Your Name:"));   
+        panel.add(nameField);
+
+        int result = JOptionPane.showConfirmDialog(menuFrame, panel,
+            "☣ Connect to Server", JOptionPane.OK_CANCEL_OPTION,
+            JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            String ip   = ipField.getText().trim();
+            String name = nameField.getText().trim();
+            if (ip.isEmpty())   ip   = "localhost";
+            if (name.isEmpty()) name = "Player";
+
+            // Switch to waiting mode - show only "Invite Members"
+            menuScreen.setWaitingMode(true);
+            
+            // Connect to server
+            start(ip, name);
+        }
+    }
+
     private void startGameDirectly() {
-        // Connect directly with default values
-        String serverIp = "localhost";
-        String playerName = System.getProperty("user.name", "Player");
-        start(serverIp, playerName);
+        // This method is no longer used
     }
 
     private static void showConnectionDialog() {

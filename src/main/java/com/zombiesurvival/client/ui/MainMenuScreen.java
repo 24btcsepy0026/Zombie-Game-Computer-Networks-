@@ -16,12 +16,8 @@ public class MainMenuScreen extends JPanel {
     private static final Color HIGHLIGHT = new Color(220, 20, 20);
     
     private int selectedOption = 0;
-    private String[] menuOptions = {
-        "Start Game",
-        "Invite Members",
-        "Settings",
-        "Exit"
-    };
+    private String[] menuOptions;
+    private boolean waitingForConnection = false;
     
     private MenuSelectionListener selectionListener;
     private float pulseAngle = 0f;
@@ -33,6 +29,7 @@ public class MainMenuScreen extends JPanel {
     
     public MainMenuScreen(MenuSelectionListener listener) {
         this.selectionListener = listener;
+        this.menuOptions = new String[]{"Start Game", "Settings", "Exit"};
         setPreferredSize(new Dimension(1024, 768));
         setBackground(DARK_BG);
         setFocusable(true);
@@ -304,6 +301,17 @@ public class MainMenuScreen extends JPanel {
         String controls = "Use ↑↓ or W/S to navigate • ENTER to select • ESC to exit";
         int controlsWidth = g2.getFontMetrics().stringWidth(controls);
         g2.drawString(controls, (w - controlsWidth) / 2, h - 30);
+    }
+    
+    public void setWaitingMode(boolean waiting) {
+        this.waitingForConnection = waiting;
+        if (waiting) {
+            this.menuOptions = new String[]{"Invite Members"};
+        } else {
+            this.menuOptions = new String[]{"Start Game", "Settings", "Exit"};
+        }
+        this.selectedOption = 0;
+        repaint();
     }
     
     public void cleanup() {
