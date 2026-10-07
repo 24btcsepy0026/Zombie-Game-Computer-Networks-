@@ -19,14 +19,15 @@ public class GameWindow extends JFrame {
 
         gamePanel = new GamePanel();
         add(gamePanel, BorderLayout.CENTER);
-        
-        pack(); // sizes the frame so that all its contents are at or above their preferred sizes
+
+        pack(); // sizes the frame so that all its contents are at or above their preferred
+                // sizes
         setLocationRelativeTo(null); // center on screen
 
         // Setup input controller
-        InputController inputController = new InputController(client);
-        addKeyListener(inputController);
-        
+        InputController inputController = new InputController(client, this);
+        inputController.start();
+
         // Timer for steady rendering (approx 60 FPS)
         Timer timer = new Timer(16, e -> gamePanel.repaint());
         timer.start();

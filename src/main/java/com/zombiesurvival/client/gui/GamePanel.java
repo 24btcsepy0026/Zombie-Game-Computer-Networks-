@@ -10,7 +10,7 @@ import java.util.Collection;
 public class GamePanel extends JPanel {
     private static final int WIDTH = 800;
     private static final int HEIGHT = 600;
-    
+
     private GameState gameState;
 
     public GamePanel() {
@@ -39,7 +39,7 @@ public class GamePanel extends JPanel {
             g2d.setColor(Color.WHITE);
             g2d.setFont(new Font("Arial", Font.BOLD, 20));
             g2d.drawString("Time: " + gameState.getTimeRemaining(), 10, 30);
-            
+
             // Draw Players
             Collection<Player> players = gameState.getPlayers().values();
             for (Player p : players) {
@@ -48,9 +48,9 @@ public class GamePanel extends JPanel {
                 } else {
                     g2d.setColor(Color.GREEN); // Survivor
                 }
-                
-                g2d.fillRect(p.getX(), p.getY(), p.getWidth(), p.getHeight());
-                
+
+                g2d.fillRect(p.getX(), p.getY(), p.getHealth(), p.getHeight());
+
                 g2d.setColor(Color.WHITE);
                 g2d.setFont(new Font("Arial", Font.PLAIN, 12));
                 g2d.drawString(p.getName(), p.getX(), p.getY() - 5);
@@ -59,7 +59,7 @@ public class GamePanel extends JPanel {
             drawCenteredText(g2d, "GAME OVER! " + gameState.getWinnerMessage(), Color.YELLOW);
         }
     }
-    
+
     private void drawCenteredText(Graphics2D g2d, String text, Color color) {
         g2d.setColor(color);
         g2d.setFont(new Font("Arial", Font.BOLD, 24));
