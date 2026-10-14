@@ -69,15 +69,17 @@ public class GameClient {
                     GameState state = gsu.getState();
                     lastGameState = state;
 
-                    // Update connected players list on menu if visible
+                    // Update connected players and host name on menu if visible
                     if (currentMenuScreen != null && currentMenuScreen.isShowing()) {
                         java.util.List<String> playerNames = new java.util.ArrayList<>();
                         for (Player p : state.getPlayers().values()) {
                             playerNames.add(p.getName());
                         }
-                        SwingUtilities.invokeLater(() ->
-                            currentMenuScreen.setConnectedPlayers(playerNames)
-                        );
+                        String host = state.getHostPlayerName();
+                        SwingUtilities.invokeLater(() -> {
+                            currentMenuScreen.setHostPlayerName(host);
+                            currentMenuScreen.setConnectedPlayers(playerNames);
+                        });
                     }
 
                     // Auto-open game screen when the game transitions to PLAYING
@@ -188,6 +190,7 @@ public class GameClient {
         }
         if (currentMenuScreen != null) {
             currentMenuScreen.setPlayerName(name);
+            currentMenuScreen.setHostPlayerName(name);
             currentMenuScreen.setView(MainMenuScreen.ViewState.INVITE_LOBBY);
         }
     }
@@ -222,7 +225,7 @@ public class GameClient {
             if (start(ip, port, name)) {
                 if (currentMenuScreen != null) {
                     currentMenuScreen.setPlayerName(name);
-                    currentMenuScreen.setView(MainMenuScreen.ViewState.INVITE_LOBBY);
+                    currentMenuScreen.setView(MainMenuScreen.ViewState.CLIENT_LOBBY);
                 }
             }
         }

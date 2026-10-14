@@ -32,6 +32,7 @@ public class GameEngine implements Runnable {
     private int  tickCount    = 0;
     private long gameOverTime = 0;
     private boolean running   = true;
+    private String  lastZombiePlayerId = null;
 
     public GameEngine(GameState gameState, GameServer server) {
         this.gameState = gameState;
@@ -91,9 +92,20 @@ public class GameEngine implements Runnable {
         Random rand = new Random();
 
         if (gameState.getGameMode() == GameState.GameMode.MULTIPLAYER && players.size() >= 2) {
-            // ── MULTIPLAYER: one real player becomes the zombie ────────────────
-            // Pick a random zombie from the real players
-            int zombieIdx = rand.nextInt(players.size());
+            // ── MULTIPLAYER: randomly assign exactly ONE player as zombie, rest survivors
+            int zombieIdx;
+            if (lastZombiePlayerId != null && players.size() > 2) {
+                List<Integer> candidates = new ArrayList<>();
+                for (int i = 0; i < players.size(); i++) {
+                    if (!players.get(i).getId().equals(lastZombiePlayerId)) {
+                        candidates.add(i);
+                    }
+                }
+                zombieIdx = candidates.get(rand.nextInt(candidates.size()));
+            } else {
+                zombieIdx = rand.nextInt(players.size());
+            }
+            lastZombiePlayerId = players.get(zombieIdx).getId();
 
             for (int i = 0; i < players.size(); i++) {
                 Player p = players.get(i);
@@ -350,8 +362,12 @@ public class GameEngine implements Runnable {
     }
 
     private void resetGame() {
+        // Remove temporary AI zombies from previous match if any
+        gameState.getPlayers().entrySet().removeIf(e -> e.getKey().startsWith("zombie_"));
+
         for (Player p : gameState.getPlayers().values()) {
             p.setRole(Player.Role.SURVIVOR);
+            p.setInfected(false);
             p.setHealth(100);
             p.setScore(0);
         }
@@ -360,7 +376,7 @@ public class GameEngine implements Runnable {
         gameState.setTimeRemaining(GAME_DURATION_S);
         gameState.setWinnerMessage("");
         gameState.setCurrentPhase(GameState.Phase.WAITING);
-        System.out.println("Game reset → WAITING for players.");
+        System.out.println("Game reset → WAITING in lobby for host to start.");
     }
 
     // ── Collision helpers ─────────────────────────────────────────────────────

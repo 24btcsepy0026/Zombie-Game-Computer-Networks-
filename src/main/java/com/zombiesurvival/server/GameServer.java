@@ -55,6 +55,14 @@ public class GameServer {
             Player p = gameState.getPlayer(handler.getPlayerId());
             String name = (p != null) ? p.getName() : "Unknown";
             gameState.removePlayer(handler.getPlayerId());
+            if (name.equals(gameState.getHostPlayerName())) {
+                String nextHost = "";
+                for (Player remaining : gameState.getPlayers().values()) {
+                    nextHost = remaining.getName();
+                    break;
+                }
+                gameState.setHostPlayerName(nextHost);
+            }
             gameState.addChatMessage("** " + name + " disconnected **");
             System.out.println("[-] " + name + " disconnected. Players: " + clients.size());
         }

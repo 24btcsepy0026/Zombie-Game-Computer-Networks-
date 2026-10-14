@@ -52,6 +52,7 @@ public class GameState implements Serializable {
     private int timeRemaining  = 120;
     private int gameOverCountdown = 10;
     private String winnerMessage = "";
+    private String hostPlayerName = "";
 
     // ── Players ────────────────────────────────────────────────────────────────
     public Phase getCurrentPhase() { return currentPhase; }
@@ -59,6 +60,9 @@ public class GameState implements Serializable {
 
     public GameMode getGameMode()           { return gameMode; }
     public void     setGameMode(GameMode m) { this.gameMode = m; }
+
+    public String   getHostPlayerName()              { return hostPlayerName; }
+    public void     setHostPlayerName(String name)   { this.hostPlayerName = name; }
 
     public ConcurrentHashMap<String, Player> getPlayers() { return players; }
     public void   addPlayer(Player p)      { players.put(p.getId(), p); }

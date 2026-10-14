@@ -68,10 +68,13 @@ public class ClientHandler implements Runnable {
             sendMessage(new AssignIdMessage(playerId));
 
             // Broadcast join notification
+            if (gameState.getHostPlayerName() == null || gameState.getHostPlayerName().isEmpty()) {
+                gameState.setHostPlayerName(playerName);
+            }
             String joinMsg = "** " + playerName + " joined the game **";
             gameState.addChatMessage(joinMsg);
             server.broadcastToAll(new ChatBroadcast(joinMsg));
-            System.out.println("[JOIN] " + playerName + " (" + playerId + ")");
+            System.out.println("[JOIN] " + playerName + " (" + playerId + ") [Host: " + gameState.getHostPlayerName() + "]");
 
         } else if (msg instanceof StartGameMessage) {
             StartGameMessage sgm = (StartGameMessage) msg;

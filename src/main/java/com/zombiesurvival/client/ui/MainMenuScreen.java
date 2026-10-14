@@ -23,16 +23,23 @@ import java.util.List;
  *   - "Back"             -> returns to Intro
  *
  * Page 3 [MULTIPLAYER] (from Play Multiplayer):
- *   - "Invite Members" -> shows Port & IP address to share with other systems
- *   - "Join a Lobby"   -> enter IP & Port to connect
+ *   - "Invite Members" -> shows Port & IP address to share with other systems (Host)
+ *   - "Join a Lobby"   -> enter IP & Port to connect (Client)
  *   - "Back"           -> returns to Mode Select
  *
- * Page 4 [INVITE_LOBBY] (from Invite Members):
+ * Page 4 [INVITE_LOBBY] (Host Lobby):
  *   - Displays IP & Port prominently
  *   - Copy IP button
- *   - Live Connected Players list
- *   - Start Match button
+ *   - Shows main system (host) and connected players with [Connected]
+ *   - Start Game button (enabled once members connect; ENTER also starts)
  *   - Back button
+ *
+ * Page 5 [CLIENT_LOBBY] (Client Joined Lobby):
+ *   - Displays main system username (host) prominently
+ *   - Shows all other connected players with [Connected]
+ *   - Shows waiting notice for main system to start
+ *   - Does NOT have a Start Game button (only host starts!)
+ *   - Leave Lobby button
  */
 public class MainMenuScreen extends JPanel {
 
@@ -40,7 +47,8 @@ public class MainMenuScreen extends JPanel {
         INTRO,          // 1. "Start Game", "Settings"
         MODE_SELECT,    // 2. "Play Solo", "Play Multiplayer"
         MULTIPLAYER,    // 3. "Invite Members", "Join a Lobby"
-        INVITE_LOBBY    // 4. Displays IP, Port, Connected Players, Start Match
+        INVITE_LOBBY,   // 4. Host Lobby: IP, Port, Players, Start Match
+        CLIENT_LOBBY    // 5. Client Lobby: Shows Main System & Players, waits for host
     }
 
     private static final Color DARK_BG       = new Color(10, 10, 16);
@@ -59,6 +67,7 @@ public class MainMenuScreen extends JPanel {
 
     private String localIpAddress = "127.0.0.1";
     private String playerName = System.getProperty("user.name", "Player");
+    private String hostPlayerName = "";
     private final List<String> connectedPlayers = new ArrayList<>();
     private String copiedNotice = "";
     private long copiedNoticeTimer = 0;
@@ -149,6 +158,11 @@ public class MainMenuScreen extends JPanel {
             selectedIndex = (selectedIndex + 1) % maxButtons;
             repaint();
         } else if (keyCode == KeyEvent.VK_ENTER || keyCode == KeyEvent.VK_SPACE) {
+            // If in host invite lobby and members are connected, ENTER triggers Start Game
+            if (currentView == ViewState.INVITE_LOBBY && connectedPlayers.size() >= 2) {
+                if (listener != null) listener.onStartMultiplayerGame();
+                return;
+            }
             triggerButtonAction(selectedIndex);
         } else if (keyCode == KeyEvent.VK_ESCAPE) {
             navigateBack();
@@ -161,6 +175,7 @@ public class MainMenuScreen extends JPanel {
             case MODE_SELECT -> setView(ViewState.INTRO);
             case MULTIPLAYER -> setView(ViewState.MODE_SELECT);
             case INVITE_LOBBY -> setView(ViewState.MULTIPLAYER);
+            case CLIENT_LOBBY -> setView(ViewState.MULTIPLAYER);
         }
     }
 
@@ -168,50 +183,44 @@ public class MainMenuScreen extends JPanel {
         switch (currentView) {
             case INTRO -> {
                 if (index == 0) {
-                    // "Start game" -> go to Page 2
                     setView(ViewState.MODE_SELECT);
                 } else if (index == 1) {
-                    // "Settings"
                     if (listener != null) listener.onOpenSettings();
                 }
             }
             case MODE_SELECT -> {
                 if (index == 0) {
-                    // "Play solo" -> solo game with AI zombies
                     if (listener != null) listener.onPlaySolo();
                 } else if (index == 1) {
-                    // "Play multiplayer" -> go to Page 3
                     setView(ViewState.MULTIPLAYER);
                 } else if (index == 2) {
-                    // Back
                     setView(ViewState.INTRO);
                 }
             }
             case MULTIPLAYER -> {
                 if (index == 0) {
-                    // "Invite members" -> Host & show IP/Port
                     if (listener != null) listener.onInviteMembersHost();
                     setView(ViewState.INVITE_LOBBY);
                 } else if (index == 1) {
-                    // "Join a lobby" -> Enter address
                     if (listener != null) listener.onJoinLobby();
                 } else if (index == 2) {
-                    // Back
                     setView(ViewState.MODE_SELECT);
                 }
             }
             case INVITE_LOBBY -> {
                 if (index == 0) {
-                    // Copy IP & Port
                     copyIpToClipboard();
                 } else if (index == 1) {
-                    // Start match - enabled once members get connected
                     int count = Math.max(1, connectedPlayers.size());
                     if (count >= 2) {
                         if (listener != null) listener.onStartMultiplayerGame();
                     }
                 } else if (index == 2) {
-                    // Back
+                    setView(ViewState.MULTIPLAYER);
+                }
+            }
+            case CLIENT_LOBBY -> {
+                if (index == 0) {
                     setView(ViewState.MULTIPLAYER);
                 }
             }
@@ -231,6 +240,11 @@ public class MainMenuScreen extends JPanel {
 
     public void setPlayerName(String name) {
         this.playerName = name;
+        repaint();
+    }
+
+    public void setHostPlayerName(String host) {
+        this.hostPlayerName = (host != null && !host.isEmpty()) ? host : "";
         repaint();
     }
 
@@ -310,6 +324,7 @@ public class MainMenuScreen extends JPanel {
             case MODE_SELECT -> drawModeSelectView(g2, w, h);
             case MULTIPLAYER -> drawMultiplayerView(g2, w, h);
             case INVITE_LOBBY -> drawInviteLobbyView(g2, w, h);
+            case CLIENT_LOBBY -> drawClientLobbyView(g2, w, h);
         }
 
         // 5. Footer info
@@ -437,7 +452,6 @@ public class MainMenuScreen extends JPanel {
         int startY = 180;
         int spacing = 85;
 
-        // Section header
         drawSectionSubtitle(g2, w, "SELECT GAME MODE", startY - 22);
 
         // Button 0: Play Solo
@@ -506,14 +520,13 @@ public class MainMenuScreen extends JPanel {
             new Color(120, 125, 140), new Color(30, 32, 42));
     }
 
-    // ── PAGE 4: INVITE LOBBY (Displays Port & IP Address) ─────────────────────
+    // ── PAGE 4: INVITE LOBBY (Host: Displays IP, Port, Players, Start Match) ─
 
     private void drawInviteLobbyView(Graphics2D g2, int w, int h) {
         int panelW = 540;
         int panelX = (w - panelW) / 2;
         int panelY = 150;
 
-        // Container
         g2.setColor(new Color(18, 20, 30, 240));
         g2.fillRoundRect(panelX, panelY, panelW, 350, 16, 16);
         g2.setStroke(new BasicStroke(1.8f));
@@ -523,14 +536,14 @@ public class MainMenuScreen extends JPanel {
         // Panel Title
         g2.setFont(new Font("Segoe UI", Font.BOLD, 18));
         g2.setColor(GOLD_ACCENT);
-        String header = "☣ MULTIPLAYER LOBBY - INVITE MEMBERS ☣";
+        String header = "☣ MULTIPLAYER LOBBY - HOSTING ☣";
         g2.drawString(header, panelX + (panelW - g2.getFontMetrics().stringWidth(header)) / 2, panelY + 30);
 
         // IP & PORT Box
         int ipBoxW = 460;
-        int ipBoxH = 70;
+        int ipBoxH = 68;
         int ipBoxX = panelX + (panelW - ipBoxW) / 2;
-        int ipBoxY = panelY + 46;
+        int ipBoxY = panelY + 44;
 
         g2.setColor(new Color(8, 10, 16));
         g2.fillRoundRect(ipBoxX, ipBoxY, ipBoxW, ipBoxH, 12, 12);
@@ -538,7 +551,6 @@ public class MainMenuScreen extends JPanel {
         g2.setStroke(new BasicStroke(1.5f));
         g2.drawRoundRect(ipBoxX, ipBoxY, ipBoxW, ipBoxH, 12, 12);
 
-        // Labels
         g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
         g2.setColor(new Color(150, 180, 220));
         g2.drawString("IP ADDRESS & PORT (SHARE WITH OTHER SYSTEMS):", ipBoxX + 16, ipBoxY + 20);
@@ -546,11 +558,11 @@ public class MainMenuScreen extends JPanel {
         String ipString = localIpAddress + "  :  " + DEFAULT_PORT;
         g2.setFont(new Font("Consolas", Font.BOLD, 22));
         g2.setColor(Color.WHITE);
-        g2.drawString(ipString, ipBoxX + 16, ipBoxY + 50);
+        g2.drawString(ipString, ipBoxX + 16, ipBoxY + 48);
 
         // Copy IP Button
-        int copyBtnW = 105;
-        int copyBtnH = 34;
+        int copyBtnW = 100;
+        int copyBtnH = 32;
         Rectangle copyBtn = new Rectangle(ipBoxX + ipBoxW - copyBtnW - 12, ipBoxY + 18, copyBtnW, copyBtnH);
         buttonBounds.add(copyBtn);
 
@@ -560,20 +572,13 @@ public class MainMenuScreen extends JPanel {
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
         String copyText = copiedNotice.isEmpty() ? "COPY" : "COPIED!";
-        g2.drawString(copyText, copyBtn.x + (copyBtn.width - g2.getFontMetrics().stringWidth(copyText)) / 2, copyBtn.y + 22);
-
-        // Instructions
-        g2.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        g2.setColor(new Color(180, 190, 205));
-        int textY = ipBoxY + ipBoxH + 24;
-        g2.drawString("1. Other systems run the client and select 'Join a Lobby'", panelX + 35, textY);
-        g2.drawString("2. Enter this IP: " + localIpAddress + "  and Port: " + DEFAULT_PORT, panelX + 35, textY + 20);
+        g2.drawString(copyText, copyBtn.x + (copyBtn.width - g2.getFontMetrics().stringWidth(copyText)) / 2, copyBtn.y + 21);
 
         // Connected Players Box
         int plBoxW = 460;
-        int plBoxH = 80;
+        int plBoxH = 95;
         int plBoxX = panelX + (panelW - plBoxW) / 2;
-        int plBoxY = textY + 32;
+        int plBoxY = ipBoxY + ipBoxH + 16;
 
         g2.setColor(new Color(12, 14, 20));
         g2.fillRoundRect(plBoxX, plBoxY, plBoxW, plBoxH, 10, 10);
@@ -585,24 +590,23 @@ public class MainMenuScreen extends JPanel {
 
         g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
         g2.setColor(new Color(120, 220, 130));
-        g2.drawString("CONNECTED SYSTEMS (" + playerCount + "):", plBoxX + 16, plBoxY + 22);
+        g2.drawString("CONNECTED SYSTEMS (" + playerCount + "):", plBoxX + 16, plBoxY + 20);
 
-        // Render each connected player with "[Connected]" beside username
+        // Render connected players with [Connected]
+        String currentHost = hostPlayerName.isEmpty() ? playerName : hostPlayerName;
         if (connectedPlayers.isEmpty() || connectedPlayers.size() == 1) {
-            String host = connectedPlayers.isEmpty() ? playerName : connectedPlayers.get(0);
-            drawPlayerRow(g2, host, true, plBoxX + 20, plBoxY + 44);
+            drawPlayerRow(g2, currentHost, true, plBoxX + 18, plBoxY + 44);
 
-            // Pulsing waiting notice
             float waitPulse = 0.5f + 0.5f * (float) Math.sin(pulseAngle * 2.5f);
             g2.setColor(new Color(235, 195, 75, (int)(160 + 95 * waitPulse)));
             g2.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            g2.drawString("⏳ Waiting for other systems to connect...", plBoxX + 20, plBoxY + 66);
+            g2.drawString("⏳ Waiting for other systems to connect...", plBoxX + 18, plBoxY + 74);
         } else {
             int py = plBoxY + 44;
             for (int i = 0; i < Math.min(4, connectedPlayers.size()); i++) {
                 String p = connectedPlayers.get(i);
-                boolean isHost = (i == 0);
-                drawPlayerRow(g2, p, isHost, plBoxX + 20 + (i % 2) * 215, py + (i / 2) * 22);
+                boolean isHost = p.equals(currentHost);
+                drawPlayerRow(g2, p, isHost, plBoxX + 18 + (i % 2) * 215, py + (i / 2) * 24);
             }
         }
 
@@ -611,13 +615,12 @@ public class MainMenuScreen extends JPanel {
         int btnH = 46;
         int btnY = panelY + 285;
 
-        // Button 1: START GAME (Appears enabled once members connect)
+        // Button 1: START GAME (Enabled once members connect)
         Rectangle startBtn = new Rectangle(panelX + 35, btnY, btnW, btnH);
         buttonBounds.add(startBtn);
         boolean startSel = (selectedIndex == 1 || hoveredButton == 1);
 
         if (hasMembers) {
-            // Enabled - Ready to start match
             float pulse = 0.5f + 0.5f * (float) Math.sin(pulseAngle * 3f);
             g2.setColor(startSel ? new Color(50, 205, 90) : new Color(35, 150, 65));
             g2.fillRoundRect(startBtn.x, startBtn.y, startBtn.width, startBtn.height, 10, 10);
@@ -626,10 +629,9 @@ public class MainMenuScreen extends JPanel {
             g2.drawRoundRect(startBtn.x, startBtn.y, startBtn.width, startBtn.height, 10, 10);
             g2.setColor(Color.WHITE);
             g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
-            String startText = "▶ START GAME";
+            String startText = "▶ START GAME (ENTER)";
             g2.drawString(startText, startBtn.x + (startBtn.width - g2.getFontMetrics().stringWidth(startText)) / 2, startBtn.y + 28);
         } else {
-            // Disabled - Waiting for members
             g2.setColor(new Color(25, 28, 38));
             g2.fillRoundRect(startBtn.x, startBtn.y, startBtn.width, startBtn.height, 10, 10);
             g2.setColor(new Color(50, 55, 70));
@@ -637,7 +639,7 @@ public class MainMenuScreen extends JPanel {
             g2.drawRoundRect(startBtn.x, startBtn.y, startBtn.width, startBtn.height, 10, 10);
             g2.setColor(new Color(110, 120, 135));
             g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
-            String waitText = "WAITING FOR MEMBERS...";
+            String waitText = "WAITING FOR PLAYERS...";
             g2.drawString(waitText, startBtn.x + (startBtn.width - g2.getFontMetrics().stringWidth(waitText)) / 2, startBtn.y + 28);
         }
 
@@ -653,10 +655,102 @@ public class MainMenuScreen extends JPanel {
         g2.drawString(backText, backBtn.x + (backBtn.width - g2.getFontMetrics().stringWidth(backText)) / 2, backBtn.y + 28);
     }
 
+    // ── PAGE 5: CLIENT LOBBY (Joined System: Shows Main System & Players, Waits for Host) ──
+
+    private void drawClientLobbyView(Graphics2D g2, int w, int h) {
+        int panelW = 540;
+        int panelX = (w - panelW) / 2;
+        int panelY = 150;
+
+        g2.setColor(new Color(18, 20, 30, 240));
+        g2.fillRoundRect(panelX, panelY, panelW, 350, 16, 16);
+        g2.setStroke(new BasicStroke(1.8f));
+        g2.setColor(new Color(50, 130, 220));
+        g2.drawRoundRect(panelX, panelY, panelW, 350, 16, 16);
+
+        // Panel Title
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        g2.setColor(GOLD_ACCENT);
+        String header = "☣ MULTIPLAYER LOBBY - JOINED ☣";
+        g2.drawString(header, panelX + (panelW - g2.getFontMetrics().stringWidth(header)) / 2, panelY + 30);
+
+        // Main System (Host) Card
+        int hostBoxW = 460;
+        int hostBoxH = 55;
+        int hostBoxX = panelX + (panelW - hostBoxW) / 2;
+        int hostBoxY = panelY + 46;
+
+        g2.setColor(new Color(12, 22, 36));
+        g2.fillRoundRect(hostBoxX, hostBoxY, hostBoxW, hostBoxH, 10, 10);
+        g2.setColor(new Color(60, 145, 230));
+        g2.setStroke(new BasicStroke(1.5f));
+        g2.drawRoundRect(hostBoxX, hostBoxY, hostBoxW, hostBoxH, 10, 10);
+
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        g2.setColor(new Color(140, 195, 255));
+        g2.drawString("MAIN SYSTEM (HOST):", hostBoxX + 16, hostBoxY + 18);
+
+        String mainSystemName = hostPlayerName.isEmpty() ? (!connectedPlayers.isEmpty() ? connectedPlayers.get(0) : "Host") : hostPlayerName;
+        drawPlayerRow(g2, mainSystemName, true, hostBoxX + 16, hostBoxY + 40);
+
+        // Connected Players Box
+        int plBoxW = 460;
+        int plBoxH = 95;
+        int plBoxX = panelX + (panelW - plBoxW) / 2;
+        int plBoxY = hostBoxY + hostBoxH + 16;
+
+        g2.setColor(new Color(12, 14, 20));
+        g2.fillRoundRect(plBoxX, plBoxY, plBoxW, plBoxH, 10, 10);
+        g2.setColor(new Color(40, 45, 60));
+        g2.drawRoundRect(plBoxX, plBoxY, plBoxW, plBoxH, 10, 10);
+
+        int playerCount = Math.max(1, connectedPlayers.size());
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        g2.setColor(new Color(120, 220, 130));
+        g2.drawString("ALL CONNECTED PLAYERS (" + playerCount + "):", plBoxX + 16, plBoxY + 20);
+
+        int py = plBoxY + 44;
+        for (int i = 0; i < Math.min(4, connectedPlayers.size()); i++) {
+            String p = connectedPlayers.get(i);
+            boolean isHost = p.equals(mainSystemName);
+            boolean isYou = p.equals(playerName);
+            String label = p + (isYou ? " (You)" : "");
+            drawPlayerRow(g2, label, isHost, plBoxX + 18 + (i % 2) * 215, py + (i / 2) * 24);
+        }
+
+        // Waiting Notice (Only main system starts)
+        int waitY = plBoxY + plBoxH + 24;
+        float waitPulse = 0.5f + 0.5f * (float) Math.sin(pulseAngle * 2.5f);
+        g2.setColor(new Color(235, 195, 75, (int)(160 + 95 * waitPulse)));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        String waitMsg = "⏳ Waiting for main system (" + mainSystemName + ") to start the game...";
+        g2.drawString(waitMsg, panelX + (panelW - g2.getFontMetrics().stringWidth(waitMsg)) / 2, waitY);
+
+        g2.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        g2.setColor(TEXT_GRAY);
+        String waitHint = "The match will launch automatically when the host presses ENTER.";
+        g2.drawString(waitHint, panelX + (panelW - g2.getFontMetrics().stringWidth(waitHint)) / 2, waitY + 18);
+
+        // Single Action Button: LEAVE LOBBY
+        int btnW = 180;
+        int btnH = 42;
+        int btnY = panelY + 288;
+        Rectangle leaveBtn = new Rectangle(panelX + (panelW - btnW) / 2, btnY, btnW, btnH);
+        buttonBounds.add(leaveBtn);
+
+        boolean leaveSel = (selectedIndex == 0 || hoveredButton == 0);
+        g2.setColor(leaveSel ? new Color(170, 45, 45) : new Color(110, 30, 30));
+        g2.fillRoundRect(leaveBtn.x, leaveBtn.y, leaveBtn.width, leaveBtn.height, 8, 8);
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        String leaveText = "◀ LEAVE LOBBY";
+        g2.drawString(leaveText, leaveBtn.x + (leaveBtn.width - g2.getFontMetrics().stringWidth(leaveText)) / 2, leaveBtn.y + 26);
+    }
+
     private void drawPlayerRow(Graphics2D g2, String name, boolean isHost, int x, int y) {
         g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
         g2.setColor(Color.WHITE);
-        String label = "• " + name + (isHost ? " (Host)" : "");
+        String label = (isHost ? "👑 " : "• ") + name + (isHost ? " (Host)" : "");
         g2.drawString(label, x, y);
 
         FontMetrics fm = g2.getFontMetrics();
