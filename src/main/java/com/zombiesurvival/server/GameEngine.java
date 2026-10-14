@@ -67,10 +67,7 @@ public class GameEngine implements Runnable {
     // ── Waiting phase ─────────────────────────────────────────────────────────
 
     private void tickWaiting() {
-        // Start immediately when any player connects
-        if (gameState.getPlayers().size() >= 1) {
-            startGame();
-        }
+        // Stays in lobby phase until host triggers forceStartGame via StartGameMessage
     }
     
     /** Public method to force game start immediately (called from server). */
