@@ -11,7 +11,8 @@ import java.util.concurrent.*;
 public class GameState implements Serializable {
     private static final long serialVersionUID = 2L;
 
-    public enum Phase { WAITING, PLAYING, GAME_OVER }
+    public enum Phase    { WAITING, PLAYING, GAME_OVER }
+    public enum GameMode  { SOLO, MULTIPLAYER }
 
     // ── Map constants ──────────────────────────────────────────────────────────
     public static final int TILE_SIZE  = 32;
@@ -43,7 +44,8 @@ public class GameState implements Serializable {
     };
 
     // ── Runtime state ──────────────────────────────────────────────────────────
-    private Phase currentPhase = Phase.WAITING;
+    private Phase    currentPhase = Phase.WAITING;
+    private GameMode gameMode     = GameMode.SOLO;
     private ConcurrentHashMap<String, Player> players = new ConcurrentHashMap<>();
     private List<Pickup> pickups = Collections.synchronizedList(new ArrayList<>());
     private List<String> chatLog = Collections.synchronizedList(new ArrayList<>());
@@ -54,6 +56,9 @@ public class GameState implements Serializable {
     // ── Players ────────────────────────────────────────────────────────────────
     public Phase getCurrentPhase() { return currentPhase; }
     public void  setCurrentPhase(Phase p) { this.currentPhase = p; }
+
+    public GameMode getGameMode()           { return gameMode; }
+    public void     setGameMode(GameMode m) { this.gameMode = m; }
 
     public ConcurrentHashMap<String, Player> getPlayers() { return players; }
     public void   addPlayer(Player p)      { players.put(p.getId(), p); }

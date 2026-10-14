@@ -82,7 +82,7 @@ public class GameEngine implements Runnable {
 
     private void startGame() {
         List<Player> players = new ArrayList<>(gameState.getPlayers().values());
-        if (players.size() < 1) return; // Allow 1 or more players
+        if (players.isEmpty()) return;
 
         // Reset state
         tickCount = 0;
@@ -91,44 +91,70 @@ public class GameEngine implements Runnable {
         gameState.setGameOverCountdown(RESET_DELAY_S);
         spawnPickups();
 
-        // ALL PLAYERS ARE SURVIVORS
         Random rand = new Random();
-        int spawnIdx = 0;
 
-        for (Player p : players) {
-            p.setHealth(100);
-            p.setRole(Player.Role.SURVIVOR);
-            p.setInfected(false);
-            
-            // Assign spawn positions (skip first spawn - reserved for zombies)
-            int[] sp = SPAWNS[(spawnIdx % (SPAWNS.length - 1)) + 1];
-            p.setX(sp[0] * GameState.TILE_SIZE + 2);
-            p.setY(sp[1] * GameState.TILE_SIZE + 2);
-            spawnIdx++;
+        if (gameState.getGameMode() == GameState.GameMode.MULTIPLAYER && players.size() >= 2) {
+            // ── MULTIPLAYER: one real player becomes the zombie ────────────────
+            // Pick a random zombie from the real players
+            int zombieIdx = rand.nextInt(players.size());
+
+            for (int i = 0; i < players.size(); i++) {
+                Player p = players.get(i);
+                p.setHealth(100);
+                p.setScore(0);
+                if (i == zombieIdx) {
+                    p.setRole(Player.Role.ZOMBIE);
+                    p.setInfected(true);
+                    int[] sp = SPAWNS[0];
+                    p.setX(sp[0] * GameState.TILE_SIZE + 2);
+                    p.setY(sp[1] * GameState.TILE_SIZE + 2);
+                } else {
+                    p.setRole(Player.Role.SURVIVOR);
+                    p.setInfected(false);
+                    int[] sp = SPAWNS[(i % (SPAWNS.length - 1)) + 1];
+                    p.setX(sp[0] * GameState.TILE_SIZE + 2);
+                    p.setY(sp[1] * GameState.TILE_SIZE + 2);
+                }
+            }
+            gameState.setCurrentPhase(GameState.Phase.PLAYING);
+            String msg = "=== MULTIPLAYER GAME STARTED! One of you is the zombie! ===";
+            gameState.addChatMessage(msg);
+            server.broadcastToAll(new ChatBroadcast(msg));
+            System.out.println(msg);
+
+        } else {
+            // ── SOLO (or fallback): all real players are survivors + AI zombies ─
+            int spawnIdx = 0;
+            for (Player p : players) {
+                p.setHealth(100);
+                p.setScore(0);
+                p.setRole(Player.Role.SURVIVOR);
+                p.setInfected(false);
+                int[] sp = SPAWNS[(spawnIdx % (SPAWNS.length - 1)) + 1];
+                p.setX(sp[0] * GameState.TILE_SIZE + 2);
+                p.setY(sp[1] * GameState.TILE_SIZE + 2);
+                spawnIdx++;
+            }
+
+            int numZombies = 3 + rand.nextInt(5); // 3–7 AI zombies
+            for (int i = 0; i < numZombies; i++) {
+                String zombieId = "zombie_" + uuid();
+                int[] sp = SPAWNS[0];
+                int zx = (sp[0] + rand.nextInt(3) - 1) * GameState.TILE_SIZE + rand.nextInt(20);
+                int zy = (sp[1] + rand.nextInt(3) - 1) * GameState.TILE_SIZE + rand.nextInt(20);
+                Player zombie = new Player(zombieId, "Zombie #" + (i + 1), zx, zy, Player.Role.ZOMBIE);
+                zombie.setInfected(true);
+                gameState.getPlayers().put(zombieId, zombie);
+            }
+
+            gameState.setCurrentPhase(GameState.Phase.PLAYING);
+            String msg = "=== SURVIVAL MODE! Survive against " + numZombies + " AI zombies! ===";
+            gameState.addChatMessage(msg);
+            server.broadcastToAll(new ChatBroadcast(msg));
+            System.out.println(msg);
         }
-
-        // CREATE AI ZOMBIES (3-7 random zombies)
-        int numZombies = 3 + rand.nextInt(5); // 3 to 7 zombies
-        for (int i = 0; i < numZombies; i++) {
-            String zombieId = "zombie_" + uuid();
-            String zombieName = "Zombie #" + (i + 1);
-            
-            // Spawn at first position or random safe position
-            int[] sp = SPAWNS[0];
-            int zx = (sp[0] + rand.nextInt(3) - 1) * GameState.TILE_SIZE + rand.nextInt(20);
-            int zy = (sp[1] + rand.nextInt(3) - 1) * GameState.TILE_SIZE + rand.nextInt(20);
-            
-            Player zombie = new Player(zombieId, zombieName, zx, zy, Player.Role.ZOMBIE);
-            zombie.setInfected(true);
-            gameState.getPlayers().put(zombieId, zombie);
-        }
-
-        gameState.setCurrentPhase(GameState.Phase.PLAYING);
-        String startMsg = "=== GAME STARTED! Survive against " + numZombies + " zombies! ===";
-        gameState.addChatMessage(startMsg);
-        server.broadcastToAll(new ChatBroadcast(startMsg));
-        System.out.println(startMsg);
     }
+
 
     private void spawnPickups() {
         gameState.getPickups().clear();

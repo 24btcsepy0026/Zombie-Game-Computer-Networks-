@@ -73,6 +73,12 @@ public class ClientHandler implements Runnable {
                 server.startGameNow();
             }
 
+        } else if (msg instanceof StartGameMessage) {
+            StartGameMessage sgm = (StartGameMessage) msg;
+            gameState.setGameMode(sgm.getMode());
+            server.startGameNow();
+
+
         } else if (msg instanceof MoveCommand) {
             Player p = gameState.getPlayer(playerId);
             if (p == null || gameState.getCurrentPhase() != GameState.Phase.PLAYING) return;
