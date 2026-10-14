@@ -583,6 +583,15 @@ public class GameCanvas extends JPanel {
             g.setStroke(new BasicStroke(1.0f));
         }
 
+        // ── Zombie aura (ensures zombies are always clearly visible) ─────
+        if (zombie) {
+            float zg = 0.5f + 0.5f * (float) Math.sin(animTick * 0.08 + p.getX() * 0.04);
+            g.setColor(new Color(220, 45, 45, (int)(65 + 35 * zg)));
+            g.setStroke(new BasicStroke(1.8f));
+            g.drawOval(cx - 18, cy - 18, 36, 36);
+            g.setStroke(new BasicStroke(1.0f));
+        }
+
         // ── Shadow ───────────────────────────────────────────────────────
         g.setColor(new Color(0, 0, 0, 88));
         g.fillOval(cx - 14, cy - 8, 28, 17);
@@ -736,20 +745,23 @@ public class GameCanvas extends JPanel {
         }
     }
 
-    // ── Survivor Spotlight (Darkness & Flashlight travel with survivors) ─────
+    // ── Survivor Spotlight (Balanced lighting & Flashlight travels with survivors) ──
 
     private void drawSpotlight(Graphics2D g, GameState gs) {
+        // Even, balanced lighting throughout the lobby in WAITING phase
+        if (gs.getCurrentPhase() != GameState.Phase.PLAYING) return;
+
         Graphics2D dg = darknessBuffer.createGraphics();
         dg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // 1. Fill entire screen with dark ambient night fog
+        // 1. Soft, balanced ambient tint (alpha 58) - NOT pitch dark, so zombies & map are clearly visible
         dg.setComposite(AlphaComposite.Src);
-        dg.setColor(new Color(6, 8, 14, 232));
+        dg.setColor(new Color(10, 14, 22, 58));
         dg.fillRect(0, 0, W, H);
 
         // 2. Punch out transparent circular spotlights traveling with every survivor
         dg.setComposite(AlphaComposite.DstOut);
-        float spotRadius = 180.0f;
+        float spotRadius = 185.0f;
 
         for (Player p : gs.getPlayers().values()) {
             if (!p.isInfected()) {
@@ -758,12 +770,12 @@ public class GameCanvas extends JPanel {
 
                 RadialGradientPaint rgp = new RadialGradientPaint(
                     cx, cy, spotRadius,
-                    new float[]{ 0.0f, 0.5f, 0.82f, 1.0f },
+                    new float[]{ 0.0f, 0.45f, 0.8f, 1.0f },
                     new Color[]{
                         new Color(0, 0, 0, 255), // Fully clear in center
-                        new Color(0, 0, 0, 220),
-                        new Color(0, 0, 0, 95),
-                        new Color(0, 0, 0, 0)    // Edge blends back to darkness
+                        new Color(0, 0, 0, 190),
+                        new Color(0, 0, 0, 65),
+                        new Color(0, 0, 0, 0)
                     }
                 );
                 dg.setPaint(rgp);
@@ -772,10 +784,10 @@ public class GameCanvas extends JPanel {
         }
         dg.dispose();
 
-        // 3. Render darkness layer with punched spotlights onto canvas
+        // 3. Render balanced ambient layer with punched spotlights onto canvas
         g.drawImage(darknessBuffer, 0, 0, null);
 
-        // 4. Draw warm flashlight ambient aura over survivors
+        // 4. Subtle warm flashlight ambient aura over survivors
         for (Player p : gs.getPlayers().values()) {
             if (!p.isInfected()) {
                 float cx = p.getX() + Player.SIZE / 2.0f;
@@ -785,9 +797,9 @@ public class GameCanvas extends JPanel {
                     cx, cy, spotRadius,
                     new float[]{ 0.0f, 0.35f, 0.7f, 1.0f },
                     new Color[]{
-                        new Color(255, 230, 160, 38),
-                        new Color(255, 215, 120, 18),
-                        new Color(240, 190, 80, 6),
+                        new Color(255, 235, 170, 25),
+                        new Color(255, 215, 120, 12),
+                        new Color(240, 190, 80, 4),
                         new Color(0, 0, 0, 0)
                     }
                 );

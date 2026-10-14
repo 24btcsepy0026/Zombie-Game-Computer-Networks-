@@ -29,16 +29,23 @@ public class GameClient {
     private GameState          lastGameState;
 
     /**
-     * Start connection to server. Returns true if successful.
+     * Start connection to server with default port.
      */
     public boolean start(String serverIp, String playerName) {
+        return start(serverIp, PORT, playerName);
+    }
+
+    /**
+     * Start connection to server with custom port.
+     */
+    public boolean start(String serverIp, int port, String playerName) {
         try {
-            socket = new Socket(serverIp, PORT);
+            socket = new Socket(serverIp, port);
             out    = new ObjectOutputStream(socket.getOutputStream());
             in     = new ObjectInputStream(socket.getInputStream());
         } catch (IOException e) {
             JOptionPane.showMessageDialog(menuFrame,
-                "Could not connect to server at " + serverIp + ":" + PORT +
+                "Could not connect to server at " + serverIp + ":" + port +
                 "\n\nMake sure the host has started the server or game.",
                 "Connection Failed", JOptionPane.ERROR_MESSAGE);
             return false;
@@ -163,7 +170,7 @@ public class GameClient {
         }
     }
 
-    private void handleEnterLobbySolo() {
+    private void handlePlaySolo() {
         ensureLocalServerRunning();
         String name = System.getProperty("user.name", "Survivor");
         if (start("localhost", name)) {
@@ -173,7 +180,7 @@ public class GameClient {
         }
     }
 
-    private void handleInviteMembers() {
+    private void handleInviteMembersHost() {
         ensureLocalServerRunning();
         String name = System.getProperty("user.name", "Host");
         if (socket == null || socket.isClosed()) {
@@ -185,26 +192,34 @@ public class GameClient {
         }
     }
 
-    private void handleJoinGame() {
+    private void handleJoinLobby() {
         JTextField ipField = new JTextField(currentMenuScreen != null ? currentMenuScreen.getLocalIpAddress() : "localhost", 16);
+        JTextField portField = new JTextField(String.valueOf(PORT), 6);
         JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 16);
 
-        JPanel panel = new JPanel(new GridLayout(2, 2, 8, 8));
-        panel.add(new JLabel("Host Server IP:"));
+        JPanel panel = new JPanel(new GridLayout(3, 2, 8, 8));
+        panel.add(new JLabel("Host IP Address:"));
         panel.add(ipField);
+        panel.add(new JLabel("Port:"));
+        panel.add(portField);
         panel.add(new JLabel("Your Name:"));
         panel.add(nameField);
 
         int result = JOptionPane.showConfirmDialog(menuFrame, panel,
-            "Connect to Multiplayer Game", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            "Join Multiplayer Lobby", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result == JOptionPane.OK_OPTION) {
             String ip = ipField.getText().trim();
             String name = nameField.getText().trim();
+            int port = PORT;
+            try {
+                port = Integer.parseInt(portField.getText().trim());
+            } catch (Exception ignored) {}
+
             if (ip.isEmpty()) ip = "localhost";
             if (name.isEmpty()) name = "Player";
 
-            if (start(ip, name)) {
+            if (start(ip, port, name)) {
                 if (currentMenuScreen != null) {
                     currentMenuScreen.setPlayerName(name);
                     currentMenuScreen.setView(MainMenuScreen.ViewState.INVITE_LOBBY);
@@ -220,10 +235,26 @@ public class GameClient {
         openGameScreen();
     }
 
-    private void handleBackToMain() {
-        if (currentMenuScreen != null) {
-            currentMenuScreen.setView(MainMenuScreen.ViewState.MAIN_CHOICE);
-        }
+    private void handleOpenSettings() {
+        JPanel panel = new JPanel(new GridLayout(3, 2, 10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JCheckBox soundCheck = new JCheckBox("Enable Sound Effects", true);
+        JCheckBox musicCheck = new JCheckBox("Enable Ambient Music", true);
+        JSlider volumeSlider = new JSlider(0, 100, 75);
+        volumeSlider.setMajorTickSpacing(25);
+        volumeSlider.setPaintTicks(true);
+        volumeSlider.setPaintLabels(true);
+
+        panel.add(soundCheck);
+        panel.add(new JLabel());
+        panel.add(musicCheck);
+        panel.add(new JLabel());
+        panel.add(new JLabel("Master Volume:"));
+        panel.add(volumeSlider);
+
+        JOptionPane.showMessageDialog(menuFrame, panel,
+            "Settings", JOptionPane.PLAIN_MESSAGE);
     }
 
     // ── Entry Point & Menu ───────────────────────────────────────────────────
@@ -241,18 +272,18 @@ public class GameClient {
 
         currentMenuScreen = new MainMenuScreen(new MainMenuScreen.MenuActionListener() {
             @Override
-            public void onEnterLobbySolo() {
-                handleEnterLobbySolo();
+            public void onPlaySolo() {
+                handlePlaySolo();
             }
 
             @Override
-            public void onInviteMembers() {
-                handleInviteMembers();
+            public void onInviteMembersHost() {
+                handleInviteMembersHost();
             }
 
             @Override
-            public void onJoinGame() {
-                handleJoinGame();
+            public void onJoinLobby() {
+                handleJoinLobby();
             }
 
             @Override
@@ -261,8 +292,8 @@ public class GameClient {
             }
 
             @Override
-            public void onBackToMain() {
-                handleBackToMain();
+            public void onOpenSettings() {
+                handleOpenSettings();
             }
         });
 
