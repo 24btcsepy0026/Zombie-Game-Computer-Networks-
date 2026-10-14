@@ -49,7 +49,7 @@ public class GamePanel extends JPanel {
                     g2d.setColor(Color.GREEN); // Survivor
                 }
                 
-                g2d.fillRect(p.getX(), p.getY(), p.getWidth(), p.getHeight());
+                g2d.fillRect(p.getX(), p.getY(), Player.SIZE, Player.SIZE);
                 
                 g2d.setColor(Color.WHITE);
                 g2d.setFont(new Font("Arial", Font.PLAIN, 12));
