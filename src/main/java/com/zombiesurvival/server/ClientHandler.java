@@ -32,6 +32,11 @@ public class ClientHandler implements Runnable {
 
     @Override
     public void run() {
+        if (in == null) {
+            server.removeClient(this);
+            try { socket.close(); } catch (IOException ignored) {}
+            return;
+        }
         try {
             while (true) {
                 Object obj = in.readObject();
