@@ -202,14 +202,25 @@ public class VoxelGameWindow {
 
             // Handle gameplay input when active
             if (!isPaused) {
-                boolean forward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
-                boolean back    = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
-                boolean left    = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS;
-                boolean right   = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS;
-                boolean sprint  = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
-                boolean jump    = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+                // WASD: movement only
+                boolean forward    = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+                boolean back       = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+                boolean strafeLeft = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+                boolean strafeRight= glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+                boolean sprint     = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS
+                                  || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+                boolean jump       = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
 
-                camera.update(dt, forward, back, left, right, sprint, jump);
+                // Arrow keys: camera rotation only
+                boolean turnLeft  = glfwGetKey(window, GLFW_KEY_LEFT)  == GLFW_PRESS;
+                boolean turnRight = glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS;
+                boolean lookUp    = glfwGetKey(window, GLFW_KEY_UP)    == GLFW_PRESS;
+                boolean lookDown  = glfwGetKey(window, GLFW_KEY_DOWN)  == GLFW_PRESS;
+
+                camera.update(dt,
+                              forward, back, strafeLeft, strafeRight,
+                              sprint, jump,
+                              turnLeft, turnRight, lookUp, lookDown);
             }
 
             clouds.update(dt);
@@ -261,8 +272,8 @@ public class VoxelGameWindow {
                 quad2D.drawRect(shader, cx - 1, cy - 8, 2, 16, 1.0f, 1.0f, 1.0f, 0.85f);
 
                 // Small HUD controls guide in top-left
-                font.drawText(shader, "WASD: Move  SHIFT: Sprint  SPACE: Jump  ESC: Pause", 14, 14, 0.8f, 1.0f, 1.0f, 1.0f, 0.9f);
-                font.drawText(shader, "ZOMBIE SURVIVAL 3D [MILESTONE 1]", 14, 34, 0.8f, 0.4f, 1.0f, 0.4f, 0.9f);
+                font.drawText(shader, "WASD: Move  ARROWS: Turn/Pitch  SHIFT: Sprint  SPACE: Jump  ESC: Pause", 14, 14, 0.8f, 1.0f, 1.0f, 1.0f, 0.9f);
+                font.drawText(shader, "ZOMBIE SURVIVAL 3D [MILESTONE 1 - TURNING]", 14, 34, 0.8f, 0.4f, 1.0f, 0.4f, 0.9f);
             } else {
                 // Pause Overlay: dark tint covering full screen
                 quad2D.drawRect(shader, 0, 0, width, height, 0.0f, 0.0f, 0.0f, 0.65f);
