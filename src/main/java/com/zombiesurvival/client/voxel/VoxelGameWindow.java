@@ -181,7 +181,7 @@ public class VoxelGameWindow {
 
         VoxelShader shader = new VoxelShader();
         TextureAtlas3D atlas = new TextureAtlas3D();
-        VoxelFloorRenderer floor = new VoxelFloorRenderer(atlas);
+        VoxelWorld world = new VoxelWorld(atlas);
         BlockyCloudRenderer clouds = new BlockyCloudRenderer();
         QuadRenderer2D quad2D = new QuadRenderer2D();
         BitmapFont3D font = new BitmapFont3D();
@@ -221,6 +221,8 @@ public class VoxelGameWindow {
                               forward, back, strafeLeft, strafeRight,
                               sprint, jump,
                               turnLeft, turnRight, lookUp, lookDown);
+
+                world.resolveCollision(camera);
             }
 
             clouds.update(dt);
@@ -249,8 +251,8 @@ public class VoxelGameWindow {
             shader.setSkyColor(0.53f, 0.73f, 0.98f);
             shader.setFog(40.0f, 95.0f);
 
-            // Render floor
-            floor.render(shader, atlas, modelMatrix.identity());
+            // Render voxel world arena
+            world.render(shader, atlas, modelMatrix.identity());
 
             // Render clouds
             clouds.render(shader, modelMatrix.identity());
@@ -273,7 +275,7 @@ public class VoxelGameWindow {
 
                 // Small HUD controls guide in top-left
                 font.drawText(shader, "WASD: Move  ARROWS: Turn/Pitch  SHIFT: Sprint  SPACE: Jump  ESC: Pause", 14, 14, 0.8f, 1.0f, 1.0f, 1.0f, 0.9f);
-                font.drawText(shader, "ZOMBIE SURVIVAL 3D [MILESTONE 1 - TURNING]", 14, 34, 0.8f, 0.4f, 1.0f, 0.4f, 0.9f);
+                font.drawText(shader, "ZOMBIE SURVIVAL 3D [MILESTONE 2A]", 14, 34, 0.8f, 0.4f, 1.0f, 0.4f, 0.9f);
             } else {
                 // Pause Overlay: dark tint covering full screen
                 quad2D.drawRect(shader, 0, 0, width, height, 0.0f, 0.0f, 0.0f, 0.65f);
@@ -317,7 +319,7 @@ public class VoxelGameWindow {
         }
 
         // 6. Clean up GL resources (never terminate GLFW so relaunch works seamlessly)
-        floor.cleanup();
+        world.cleanup();
         clouds.cleanup();
         quad2D.cleanup();
         atlas.cleanup();
