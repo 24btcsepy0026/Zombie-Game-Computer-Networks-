@@ -47,6 +47,20 @@ public final class UITheme {
     public static final Font FONT_FOOTER;
 
     // ─────────────────────────────────────────────────────────────────────────
+    // PIXEL FONT CONFIGURATION (Minecraft-Style In-Game HUD, Chat, Minimap)
+    // To swap the pixel font, change PIXEL_FONT_FILE_NAME below or drop another
+    // TTF into resources/fonts/PressStart2P-Regular.ttf.
+    // ─────────────────────────────────────────────────────────────────────────
+    public static final String PIXEL_FONT_RESOURCE_NAME = "/fonts/PressStart2P-Regular.ttf";
+    public static final String PIXEL_FONT_FILE_NAME     = "resources/fonts/PressStart2P-Regular.ttf";
+    public static final boolean USE_CUSTOM_PIXEL_FONT   = true;
+
+    private static Font basePixelFont;
+    public static final Font FONT_PIXEL_TITLE;
+    public static final Font FONT_PIXEL_HUD;
+    public static final Font FONT_PIXEL_SMALL;
+
+    // ─────────────────────────────────────────────────────────────────────────
     // COLOR PALETTE
     // ─────────────────────────────────────────────────────────────────────────
     public static final Color COLOR_BG_DARK           = new Color(8, 9, 14);
@@ -119,6 +133,47 @@ public final class UITheme {
             ACTIVE_FONT_FAMILY = FALLBACK_FAMILY;
         }
 
+        // ── Load Pixel Font (Minecraft-style Arena HUD, Chat, Minimap) ──
+        Font loadedPixel = null;
+        if (USE_CUSTOM_PIXEL_FONT) {
+            try (InputStream is = UITheme.class.getResourceAsStream(PIXEL_FONT_RESOURCE_NAME)) {
+                if (is != null) {
+                    loadedPixel = Font.createFont(Font.TRUETYPE_FONT, is);
+                }
+            } catch (Exception ignored) {}
+
+            if (loadedPixel == null) {
+                File file = new File(PIXEL_FONT_FILE_NAME);
+                if (file.exists()) {
+                    try {
+                        loadedPixel = Font.createFont(Font.TRUETYPE_FONT, file);
+                    } catch (Exception ignored) {}
+                }
+            }
+            if (loadedPixel == null) {
+                File file = new File("src/main/resources/fonts/PressStart2P-Regular.ttf");
+                if (file.exists()) {
+                    try {
+                        loadedPixel = Font.createFont(Font.TRUETYPE_FONT, file);
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+
+        if (loadedPixel != null) {
+            basePixelFont = loadedPixel;
+            try {
+                GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                ge.registerFont(loadedPixel);
+            } catch (Exception ignored) {}
+        } else {
+            basePixelFont = new Font(Font.MONOSPACED, Font.BOLD, 12);
+        }
+
+        FONT_PIXEL_TITLE = basePixelFont.deriveFont(Font.BOLD, 14f);
+        FONT_PIXEL_HUD   = basePixelFont.deriveFont(Font.BOLD, 11f);
+        FONT_PIXEL_SMALL = basePixelFont.deriveFont(Font.PLAIN, 8f);
+
         // Initialize reusable Font instances
         FONT_TITLE_LARGE     = baseHorrorFont.deriveFont(Font.BOLD, 68f);
         FONT_TITLE_MEDIUM    = baseHorrorFont.deriveFont(Font.BOLD, 26f);
@@ -130,7 +185,7 @@ public final class UITheme {
         FONT_HUD_SCORE_LABEL = new Font("Segoe UI", Font.BOLD, 10);
         FONT_HUD_HP          = baseHorrorFont.deriveFont(Font.BOLD, 16f);
         FONT_HUD_LABEL       = new Font("Segoe UI", Font.BOLD, 10);
-        FONT_MINIMAP_LABEL   = baseHorrorFont.deriveFont(Font.BOLD, 12f);
+        FONT_MINIMAP_LABEL   = basePixelFont.deriveFont(Font.BOLD, 9f);
         FONT_CHAT_HEADER     = baseHorrorFont.deriveFont(Font.BOLD, 16f);
         FONT_CHAT_MSG        = new Font("Segoe UI", Font.PLAIN, 12);
         FONT_FOOTER          = new Font("Segoe UI", Font.PLAIN, 12);

@@ -37,11 +37,10 @@ public class GameCanvas extends JPanel {
         {8,7},{16,10},{6,9},{18,6},{2,15},{22,15}
     };
 
-    // ── Pre-rendered tile textures (created once in constructor) ────────────
-    private final BufferedImage tileGrassA;
-    private final BufferedImage tileGrassB;
-    private final BufferedImage tileWall;
-    private final BufferedImage tileSafe;
+    // ── Cached Minecraft-style static world map ────────────────────────────
+    private BufferedImage cachedMapImage;
+    private int           cachedW = -1;
+    private int           cachedH = -1;
     private final BufferedImage darknessBuffer = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
 
     // ── State ───────────────────────────────────────────────────────────────
@@ -61,10 +60,7 @@ public class GameCanvas extends JPanel {
     public GameCanvas() {
         setPreferredSize(new Dimension(W, H));
         setBackground(new Color(5, 10, 5));
-        tileGrassA = makeTileGrass(0);
-        tileGrassB = makeTileGrass(1);
-        tileWall   = makeTileWall();
-        tileSafe   = makeTileSafe();
+        buildCachedMap();
         // Mouse tracking for menu hover effects
         addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override public void mouseMoved(java.awt.event.MouseEvent e) {
@@ -381,107 +377,69 @@ public class GameCanvas extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  Screen: Game World
+    //  Screen: Game World (Cached Minecraft-Style Biome Arena)
     // ═══════════════════════════════════════════════════════════════════════
 
+    private void buildCachedMap() {
+        cachedW = W;
+        cachedH = H;
+        cachedMapImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+        Graphics2D mg = cachedMapImage.createGraphics();
+        mg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+        mg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+
+        // 1. Render all floor, healing plus, and obstacle tiles across the 4 corner biomes & plaza
+        for (int row = 0; row < GameState.MAP_HEIGHT; row++) {
+            for (int col = 0; col < GameState.MAP_WIDTH; col++) {
+                int tile = GameState.MAP[row][col];
+                int px = col * TS;
+                int py = row * TS;
+                BiomeTheme.Biome b = BiomeTheme.getBiomeAt(col, row);
+
+                if (tile == 1) {
+                    boolean isOuterWall = (row == 0 || row == GameState.MAP_HEIGHT - 1 ||
+                                           col == 0 || col == GameState.MAP_WIDTH - 1);
+                    if (isOuterWall) {
+                        mg.drawImage(TextureFactory.getWallTile(b), px, py, null);
+                    } else {
+                        mg.drawImage(TextureFactory.getObstacleTile(b, col, row), px, py, null);
+                    }
+                } else if (tile == 2) {
+                    mg.drawImage(TextureFactory.getHealingTile(), px, py, null);
+                } else {
+                    mg.drawImage(TextureFactory.getFloorTile(b, col, row), px, py, null);
+                }
+            }
+        }
+
+        // 2. Render static decorations (Chest/Planks for crates, Leaves/Cactus for bushes)
+        for (int[] pos : TREES) {
+            BiomeTheme.Biome b = BiomeTheme.getBiomeAt(pos[0], pos[1]);
+            mg.drawImage(TextureFactory.getBushTile(b), pos[0] * TS, pos[1] * TS, null);
+        }
+        for (int[] pos : CRATES) {
+            mg.drawImage(TextureFactory.getChestTile(), pos[0] * TS, pos[1] * TS, null);
+        }
+
+        mg.dispose();
+    }
+
     private void renderGame(Graphics2D g, GameState gs) {
-        drawTiles(g);
-        drawWallShadows(g);
-        drawDecorations(g);
+        if (cachedMapImage == null || getWidth() != cachedW || getHeight() != cachedH) {
+            buildCachedMap();
+        }
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+
+        // 1. Draw cached static pixel-art world map (Floor, Biomes, Bedrock walls, Crates/Bushes)
+        g.drawImage(cachedMapImage, 0, 0, null);
+
+        // 2. Dynamic entities
         drawPickups(g, gs);
         drawPlayers(g, gs);
         drawSpotlight(g, gs);
         drawMinimap(g, gs);
         drawZombieVignette(g, gs);
-    }
-
-    // ── Tile rendering ───────────────────────────────────────────────────────
-
-    private void drawTiles(Graphics2D g) {
-        for (int row = 0; row < GameState.MAP_HEIGHT; row++) {
-            for (int col = 0; col < GameState.MAP_WIDTH; col++) {
-                int tile = GameState.MAP[row][col];
-                int px = col * TS, py = row * TS;
-                switch (tile) {
-                    case 0 -> g.drawImage((row + col) % 2 == 0 ? tileGrassA : tileGrassB, px, py, null);
-                    case 1 -> g.drawImage(tileWall, px, py, null);
-                    case 2 -> {
-                        g.drawImage(tileSafe, px, py, null);
-                        // Animated green glow overlay
-                        float gl = 0.3f + 0.22f * (float) Math.sin(animTick * 0.055 + col * 0.35 + row * 0.35);
-                        g.setColor(new Color(28, 198, 105, (int)(72 * gl)));
-                        g.fillRect(px, py, TS, TS);
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Wall depth shadows (simulates top-left sunlight) ────────────────────
-
-    private void drawWallShadows(Graphics2D g) {
-        for (int row = 0; row < GameState.MAP_HEIGHT - 1; row++) {
-            for (int col = 0; col < GameState.MAP_WIDTH - 1; col++) {
-                if (GameState.MAP[row][col] == 1) {
-                    // Shadow below wall
-                    if (GameState.MAP[row + 1][col] != 1) {
-                        int px = col * TS, py = (row + 1) * TS;
-                        g.setColor(new Color(0, 0, 0, 72));
-                        g.fillRect(px, py, TS, 7);
-                    }
-                    // Shadow to the right of wall
-                    if (GameState.MAP[row][col + 1] != 1) {
-                        int px = (col + 1) * TS, py = row * TS;
-                        g.setColor(new Color(0, 0, 0, 55));
-                        g.fillRect(px, py, 7, TS);
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Decorative trees and crates ──────────────────────────────────────────
-
-    private void drawDecorations(Graphics2D g) {
-        for (int[] pos : TREES) {
-            int px = pos[0] * TS, py = pos[1] * TS;
-            // Ground shadow
-            g.setColor(new Color(0, 0, 0, 62));
-            g.fillOval(px + 2, py + 14, 28, 14);
-            // Trunk
-            g.setColor(new Color(85, 56, 26));
-            g.fillOval(px + 11, py + 10, 10, 12);
-            // Canopy layers (dark → light → highlight)
-            g.setColor(new Color(20, 72, 20));
-            g.fillOval(px,      py,     32, 32);
-            g.setColor(new Color(28, 98, 28));
-            g.fillOval(px + 4,  py + 4, 24, 24);
-            g.setColor(new Color(42, 128, 42));
-            g.fillOval(px + 9,  py + 7, 14, 14);
-            // Rim shadow
-            g.setColor(new Color(0, 0, 0, 38));
-            g.setStroke(new BasicStroke(1.5f));
-            g.drawOval(px + 1, py + 3, 30, 30);
-            g.setStroke(new BasicStroke(1.0f));
-        }
-        for (int[] pos : CRATES) {
-            int px = pos[0] * TS + 4, py = pos[1] * TS + 4;
-            // Cast shadow
-            g.setColor(new Color(0, 0, 0, 55));
-            g.fillRect(px + 3, py + 22, 24, 5);
-            // Wood body
-            g.setColor(new Color(112, 78, 36));
-            g.fillRect(px, py, 24, 22);
-            // Plank separators
-            g.setColor(new Color(82, 56, 24));
-            g.drawRect(px, py, 24, 22);
-            g.drawLine(px,      py + 11, px + 24, py + 11);
-            g.drawLine(px + 12, py,      px + 12, py + 22);
-            // Wood highlight
-            g.setColor(new Color(140, 102, 50));
-            g.drawLine(px + 1, py + 1, px + 22, py + 1);
-            g.drawLine(px + 1, py + 1, px + 1,  py + 20);
-        }
     }
 
     // ── Pickups ──────────────────────────────────────────────────────────────
@@ -736,9 +694,19 @@ public class GameCanvas extends JPanel {
                 int tx = mmX + (int)(col * sx), ty = mmY + (int)(row * sy);
                 int tw = Math.max(1, (int) sx + 1), th = Math.max(1, (int) sy + 1);
                 switch (tile) {
-                    case 0 -> g.setColor(new Color(25, 75, 25));
-                    case 1 -> g.setColor(new Color(55, 60, 75));
-                    case 2 -> g.setColor(new Color(18, 95, 55));
+                    case 0 -> {
+                        BiomeTheme.Biome b = BiomeTheme.getBiomeAt(col, row);
+                        Color mc = switch (b) {
+                            case FOREST -> BiomeTheme.FOREST_FLOOR_BASE;
+                            case DESERT -> BiomeTheme.DESERT_FLOOR_BASE;
+                            case SNOW   -> BiomeTheme.SNOW_FLOOR_BASE;
+                            case NETHER -> BiomeTheme.NETHER_FLOOR_BASE;
+                            case PLAZA  -> BiomeTheme.PLAZA_FLOOR_BASE;
+                        };
+                        g.setColor(mc);
+                    }
+                    case 1 -> g.setColor(new Color(40, 42, 50));
+                    case 2 -> g.setColor(BiomeTheme.HEALING_TILE_PLUS);
                 }
                 g.fillRect(tx, ty, tw, th);
             }
@@ -937,93 +905,8 @@ public class GameCanvas extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  Tile texture generators (called once in constructor)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    private static BufferedImage makeTileGrass(int variant) {
-        BufferedImage img = new BufferedImage(TS, TS, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        Color base = (variant == 0) ? new Color(18, 58, 18) : new Color(24, 68, 24);
-        g.setColor(base);
-        g.fillRect(0, 0, TS, TS);
-        Random rng = new Random(variant == 0 ? 111222L : 333444L);
-        // Grass blades (short vertical lines)
-        for (int i = 0; i < 22; i++) {
-            int gx = 1 + rng.nextInt(TS - 3), gy = 1 + rng.nextInt(TS - 5);
-            int sh = rng.nextInt(3);
-            Color gc = sh == 0 ? new Color(12, 42, 12) : sh == 1 ? base : new Color(30, 78, 30);
-            g.setColor(new Color(gc.getRed(), gc.getGreen(), gc.getBlue(), 82));
-            int bh = 3 + rng.nextInt(4);
-            g.fillRect(gx,     gy,     1, bh);
-            g.fillRect(gx + 1, gy + 1, 1, bh - 1);
-        }
-        // Dirt/pebble patches
-        for (int i = 0; i < 6; i++) {
-            int gx = rng.nextInt(TS - 3), gy = rng.nextInt(TS - 2);
-            g.setColor(new Color(22, 40, 16, 52));
-            g.fillOval(gx, gy, 4, 3);
-        }
-        g.dispose();
-        return img;
-    }
-
-    private static BufferedImage makeTileWall() {
-        BufferedImage img = new BufferedImage(TS, TS, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        // Stone base
-        g.setColor(new Color(78, 82, 97));
-        g.fillRect(0, 0, TS, TS);
-        // Mortar joints
-        g.setColor(new Color(54, 58, 70));
-        g.fillRect(0,  10, TS, 2); // row 1 horizontal
-        g.fillRect(0,  22, TS, 2); // row 2 horizontal
-        g.fillRect(16,  0, 2, 10); // row 0 vertical
-        g.fillRect( 8, 12, 2, 10); // row 1 left vertical
-        g.fillRect(24, 12, 2, 10); // row 1 right vertical
-        g.fillRect(16, 24, 2,  8); // row 2 vertical
-        // Procedural stone texture
-        Random rng = new Random(42L);
-        for (int i = 0; i < 30; i++) {
-            int nx = rng.nextInt(TS), ny = rng.nextInt(TS);
-            int sh = rng.nextInt(32) - 16;
-            g.setColor(new Color(clamp(78+sh), clamp(82+sh), clamp(97+sh), 85));
-            g.fillRect(nx, ny, 2, 2);
-        }
-        // Bevel highlight (top-left)
-        g.setColor(new Color(115, 120, 138));
-        g.drawLine(0, 0, TS - 1, 0);
-        g.drawLine(0, 0, 0, TS - 1);
-        // Bevel shadow (bottom-right)
-        g.setColor(new Color(46, 48, 60));
-        g.drawLine(0, TS - 1, TS - 1, TS - 1);
-        g.drawLine(TS - 1, 0, TS - 1, TS - 1);
-        g.dispose();
-        return img;
-    }
-
-    private static BufferedImage makeTileSafe() {
-        BufferedImage img = new BufferedImage(TS, TS, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        // Base teal-green
-        g.setColor(new Color(16, 90, 56));
-        g.fillRect(0, 0, TS, TS);
-        // Subtle grid lines
-        g.setColor(new Color(12, 74, 46));
-        for (int i = 8; i < TS; i += 8) {
-            g.drawLine(i, 0, i, TS);
-            g.drawLine(0, i, TS, i);
-        }
-        // Medical cross (muted)
-        g.setColor(new Color(36, 148, 90, 155));
-        g.fillRect(13, 6,  6, 20); // vertical
-        g.fillRect(6, 13, 20,  6); // horizontal
-        g.dispose();
-        return img;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
     //  Utilities
+    // ═══════════════════════════════════════════════════════════════════════
     // ═══════════════════════════════════════════════════════════════════════
 
     private static int clamp(int v) { return Math.max(0, Math.min(255, v)); }
