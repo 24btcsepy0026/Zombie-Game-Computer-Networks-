@@ -27,6 +27,36 @@ public class GameClient {
     private MainMenuScreen     currentMenuScreen;
     private String             myPlayerId;
     private GameState          lastGameState;
+    private volatile boolean   closingSession = false;
+    private volatile boolean   voxel3dActive  = false;
+
+    public JFrame getMenuFrame() {
+        return menuFrame;
+    }
+
+    public GameState getLastGameState() {
+        return lastGameState;
+    }
+
+    public String getMyPlayerId() {
+        return myPlayerId;
+    }
+
+    public void disconnect() {
+        closingSession = true;
+        voxel3dActive = false;
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        } catch (IOException ignored) {}
+        socket = null;
+        out = null;
+        in = null;
+        myPlayerId = null;
+        lastGameState = null;
+        closingSession = false;
+    }
 
     /**
      * Start connection to server with default port.
@@ -82,8 +112,8 @@ public class GameClient {
                         });
                     }
 
-                    // Auto-open game screen when the game transitions to PLAYING
-                    if (state.getCurrentPhase() == GameState.Phase.PLAYING && gameScreen == null) {
+                    // Auto-open game screen when the game transitions to PLAYING (2D only)
+                    if (!voxel3dActive && state.getCurrentPhase() == GameState.Phase.PLAYING && gameScreen == null) {
                         SwingUtilities.invokeLater(this::openGameScreen);
                     }
 
@@ -98,14 +128,16 @@ public class GameClient {
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            SwingUtilities.invokeLater(() -> {
-                if (gameScreen != null) {
-                    JOptionPane.showMessageDialog(gameScreen,
-                        "Disconnected from server.", "Connection Lost",
-                        JOptionPane.WARNING_MESSAGE);
-                }
-            });
-            System.exit(0);
+            if (!closingSession) {
+                SwingUtilities.invokeLater(() -> {
+                    if (gameScreen != null) {
+                        JOptionPane.showMessageDialog(gameScreen,
+                            "Disconnected from server.", "Connection Lost",
+                            JOptionPane.WARNING_MESSAGE);
+                    }
+                });
+                System.exit(0);
+            }
         }
     }
 
@@ -175,10 +207,13 @@ public class GameClient {
     private void handlePlaySolo() {
         ensureLocalServerRunning();
         String name = System.getProperty("user.name", "Survivor");
+        voxel3dActive = true;
         if (start("localhost", name)) {
             // Signal solo mode: server will spawn AI zombies on the spot
             sendMessage(new StartGameMessage(GameState.GameMode.SOLO));
-            openGameScreen();
+            com.zombiesurvival.client.voxel.VoxelGameWindow.launch(this, this::disconnect);
+        } else {
+            voxel3dActive = false;
         }
     }
 

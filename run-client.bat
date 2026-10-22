@@ -1,4 +1,4 @@
 @echo off
 echo Starting Zombie Survival CLIENT...
-java -cp out com.zombiesurvival.client.GameClient
+java -cp "out;lib/*" com.zombiesurvival.client.GameClient
 pause

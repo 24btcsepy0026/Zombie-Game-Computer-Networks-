@@ -13,7 +13,7 @@ if not exist "out\com\zombiesurvival\ZombieGame.class" (
     if not exist "out" mkdir out
     
     REM Compile all Java files
-    javac -d out -sourcepath src\main\java src\main\java\com\zombiesurvival\ZombieGame.java src\main\java\com\zombiesurvival\client\GameClient.java src\main\java\com\zombiesurvival\server\GameServer.java src\main\java\com\zombiesurvival\client\ui\*.java src\main\java\com\zombiesurvival\shared\*.java src\main\java\com\zombiesurvival\server\*.java src\main\java\com\zombiesurvival\client\*.java
+    javac -cp "lib/*" -d out -sourcepath src\main\java src\main\java\com\zombiesurvival\ZombieGame.java src\main\java\com\zombiesurvival\client\GameClient.java src\main\java\com\zombiesurvival\server\GameServer.java src\main\java\com\zombiesurvival\client\ui\*.java src\main\java\com\zombiesurvival\client\voxel\*.java src\main\java\com\zombiesurvival\shared\*.java src\main\java\com\zombiesurvival\server\*.java src\main\java\com\zombiesurvival\client\*.java
     
     if %ERRORLEVEL% NEQ 0 (
         echo.
@@ -36,7 +36,7 @@ echo - Client window will open
 echo - Just click "Start Game" and play!
 echo.
 
-java -cp out com.zombiesurvival.ZombieGame
+java -cp "out;lib/*" com.zombiesurvival.ZombieGame
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
