@@ -9,17 +9,30 @@ import java.awt.geom.RoundRectangle2D;
 
 /**
  * Bottom HUD bar — 80 px tall, full window width.
+ * Restyled with apocalyptic theme, horror-font indicators,
+ * custom Graphics2D vector icons, and zero allocations in paintComponent.
  *
  * Layout:
- *   LEFT  (270 px)  Role badge + player name + health bar
+ *   LEFT  (280 px)  Role badge + player name + health bar
  *   CENTER           Timer + phase label
- *   RIGHT  (220 px)  Score + connected player count
+ *   RIGHT (220 px)  Score + connected player count
  */
 public class HudPanel extends JPanel {
 
-    private static final Color BG_TOP    = new Color(10, 12, 18);
-    private static final Color BG_BOT    = new Color(6,   8, 13);
-    private static final Color SEPARATOR = new Color(38, 44, 58);
+    private static final Color BG_TOP       = new Color(12, 14, 20);
+    private static final Color BG_BOT       = new Color(6, 7, 11);
+    private static final Color SEPARATOR    = new Color(42, 48, 64);
+    private static final Color SEPARATOR_GLOW = new Color(55, 185, 65, 45);
+
+    // Pre-allocated Strokes for performance
+    private static final BasicStroke STROKE_1   = new BasicStroke(1.0f);
+    private static final BasicStroke STROKE_1_2 = new BasicStroke(1.2f);
+
+    // Pre-allocated GradientPaints (zero allocations in paint loop)
+    private static final GradientPaint BG_GRADIENT = new GradientPaint(0, 0, BG_TOP, 0, 80, BG_BOT);
+    private static final GradientPaint HP_GREEN = new GradientPaint(0, 0, new Color(45, 205, 75), 0, 10, new Color(25, 130, 42));
+    private static final GradientPaint HP_YELLOW = new GradientPaint(0, 0, new Color(235, 160, 25), 0, 10, new Color(160, 105, 15));
+    private static final GradientPaint HP_RED = new GradientPaint(0, 0, new Color(225, 45, 45), 0, 10, new Color(145, 25, 25));
 
     private GameState gameState;
     private String    myPlayerId;
@@ -43,129 +56,150 @@ public class HudPanel extends JPanel {
 
         int W = getWidth(), H = getHeight();
 
-        // ── Background gradient ──
-        g2.setPaint(new GradientPaint(0, 0, BG_TOP, 0, H, BG_BOT));
+        // 1. Background gradient (pre-allocated)
+        g2.setPaint(BG_GRADIENT);
         g2.fillRect(0, 0, W, H);
-        // Top separator line
+
+        // Top separator with toxic green subtle glow
         g2.setColor(SEPARATOR);
         g2.fillRect(0, 0, W, 1);
-        // Subtle inner glow on separator
-        g2.setColor(new Color(255, 255, 255, 8));
+        g2.setColor(SEPARATOR_GLOW);
         g2.fillRect(0, 1, W, 1);
 
-        if (gameState == null) { g2.dispose(); return; }
+        if (gameState == null) {
+            g2.dispose();
+            return;
+        }
 
         Player me = (myPlayerId != null) ? gameState.getPlayer(myPlayerId) : null;
         boolean zombie = (me != null) && me.isInfected();
 
-        // ══════════════════════════════════════════════
-        //  LEFT SECTION  (x: 14 → 280)
-        // ══════════════════════════════════════════════
+        // 2. Left Section: Role Badge + Player Name + HP Bar
         drawLeftSection(g2, me, zombie, W, H);
 
-        // ══════════════════════════════════════════════
-        //  CENTER SECTION
-        // ══════════════════════════════════════════════
+        // 3. Center Section: Timer + Phase Label
         drawCenterSection(g2, W, H);
 
-        // ══════════════════════════════════════════════
-        //  RIGHT SECTION  (x: W-220 → W-14)
-        // ══════════════════════════════════════════════
+        // 4. Right Section: Score + Player Count
         drawRightSection(g2, me, W, H);
 
         g2.dispose();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     private void drawLeftSection(Graphics2D g, Player me, boolean zombie, int W, int H) {
         int lx = 16;
 
         // ── Role badge (pill-shaped) ──
-        Color roleAccent = zombie ? new Color(55, 200, 65)  : new Color(65, 135, 255);
-        Color roleBg     = zombie ? new Color(14, 44, 14)   : new Color(12, 28, 58);
-        Color roleBdr    = zombie ? new Color(38, 120, 45)  : new Color(38, 88, 175);
-        String roleText  = zombie ? "☣  ZOMBIE"            : "\uD83E\uDDCD  SURVIVOR";
+        Color roleAccent = zombie ? UITheme.COLOR_TOXIC_GREEN_BRT : new Color(75, 150, 255);
+        Color roleBg     = zombie ? new Color(14, 44, 18, 220)    : new Color(12, 28, 58, 220);
+        Color roleBdr    = zombie ? UITheme.COLOR_TOXIC_GREEN      : new Color(45, 95, 185);
+        String roleText  = zombie ? "ZOMBIE" : "SURVIVOR";
 
-        g.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        g.setFont(UITheme.FONT_BADGE);
         FontMetrics rfm = g.getFontMetrics();
-        int rbW = rfm.stringWidth(roleText) + 20;
+        int rbW = rfm.stringWidth(roleText) + 36;
+        int rbH = 22;
 
         g.setColor(roleBg);
-        g.fill(new RoundRectangle2D.Float(lx, 11, rbW, 22, 11, 11));
+        g.fill(new RoundRectangle2D.Float(lx, 10, rbW, rbH, 11, 11));
         g.setColor(roleBdr);
-        g.setStroke(new java.awt.BasicStroke(1.2f));
-        g.draw(new RoundRectangle2D.Float(lx, 11, rbW, 22, 11, 11));
-        g.setStroke(new java.awt.BasicStroke(1.0f));
-        g.setColor(roleAccent);
-        g.drawString(roleText, lx + 10, 27);
+        g.setStroke(STROKE_1_2);
+        g.draw(new RoundRectangle2D.Float(lx, 10, rbW, rbH, 11, 11));
+        g.setStroke(STROKE_1);
 
-        // ── Player name ──
-        if (me != null) {
-            g.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            g.setColor(new Color(145, 150, 170));
-            g.drawString(me.getName(), lx, 48);
+        // Role Icon (Biohazard dot for Zombie, Shield cross for Survivor - no emoji)
+        if (zombie) {
+            g.setColor(UITheme.COLOR_TOXIC_GREEN_BRT);
+            g.fillOval(lx + 8, 16, 10, 10);
+            g.setColor(new Color(10, 35, 12));
+            g.fillOval(lx + 11, 19, 4, 4);
+        } else {
+            g.setColor(new Color(100, 175, 255));
+            g.fillRect(lx + 12, 14, 4, 12);
+            g.fillRect(lx + 8, 18, 12, 4);
         }
 
-        // ── Health bar ──
-        int hbX = lx, hbY = 53, hbW = 165, hbH = 10;
-        // "HP" label
-        g.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        g.setColor(new Color(115, 120, 140));
+        // Role Text with Shadow
+        g.setColor(Color.BLACK);
+        g.drawString(roleText, lx + 26, 26);
+        g.setColor(roleAccent);
+        g.drawString(roleText, lx + 25, 25);
+
+        // ── Player Name ──
+        if (me != null) {
+            g.setFont(UITheme.FONT_BUTTON_SUB);
+            g.setColor(UITheme.COLOR_TEXT_MAIN);
+            g.drawString(me.getName(), lx, 46);
+        }
+
+        // ── Health Bar ──
+        int hbX = lx, hbY = 53, hbW = 160, hbH = 12;
+
+        // "HP" label using horror font
+        g.setFont(UITheme.FONT_HUD_HP);
+        g.setColor(UITheme.COLOR_TEXT_MUTED);
         g.drawString("HP", hbX, hbY + hbH - 1);
-        hbX += 22;
+        hbX += 26;
 
-        // Background track
-        g.setColor(new Color(20, 24, 36));
-        g.fill(new RoundRectangle2D.Float(hbX, hbY, hbW, hbH, 5, 5));
+        // Background track with dark border
+        g.setColor(new Color(18, 20, 28));
+        g.fill(new RoundRectangle2D.Float(hbX, hbY, hbW, hbH, 6, 6));
+        g.setColor(new Color(40, 46, 60));
+        g.draw(new RoundRectangle2D.Float(hbX, hbY, hbW, hbH, 6, 6));
 
-        // Colored fill
+        // Colored fill with pre-allocated GradientPaint
         int hp = (me != null) ? me.getHealth() : 0;
         if (hp > 0) {
-            Color hpFill = hp > 60 ? new Color(38, 190, 60) : hp > 30 ? new Color(220, 150, 18) : new Color(210, 40, 40);
-            Color hpGlow = hp > 60 ? new Color(60, 220, 85) : hp > 30 ? new Color(240, 175, 40) : new Color(240, 68, 68);
-            // Gradient fill
-            g.setPaint(new GradientPaint(hbX, hbY, hpFill, hbX, hbY + hbH, hpFill.darker()));
-            g.fill(new RoundRectangle2D.Float(hbX, hbY, Math.max(1, hbW * hp / 100), hbH, 5, 5));
-            // Shine stripe
-            g.setColor(new Color(255, 255, 255, 30));
-            g.fill(new RoundRectangle2D.Float(hbX + 1, hbY + 1, Math.max(1, hbW * hp / 100 - 2), hbH / 2, 3, 3));
-            // Glow edge
-            g.setColor(new Color(hpGlow.getRed(), hpGlow.getGreen(), hpGlow.getBlue(), 80));
-            g.setStroke(new java.awt.BasicStroke(1.0f));
-            g.draw(new RoundRectangle2D.Float(hbX, hbY, Math.max(1, hbW * hp / 100), hbH, 5, 5));
-            g.setStroke(new java.awt.BasicStroke(1.0f));
+            int fillW = Math.max(2, hbW * hp / 100);
+            GradientPaint fillPaint = hp > 60 ? HP_GREEN : (hp > 30 ? HP_YELLOW : HP_RED);
+            g.setPaint(fillPaint);
+            g.fill(new RoundRectangle2D.Float(hbX + 1, hbY + 1, fillW - 2, hbH - 2, 5, 5));
+
+            // Gloss shine stripe
+            g.setColor(new Color(255, 255, 255, 35));
+            g.fill(new RoundRectangle2D.Float(hbX + 2, hbY + 2, Math.max(1, fillW - 4), (hbH - 4) / 2, 3, 3));
         }
-        // HP number
-        hbX += hbW + 5;
-        g.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        Color hpTextCol = hp > 60 ? new Color(55, 210, 80) : hp > 30 ? new Color(230, 165, 30) : new Color(225, 55, 55);
+
+        // HP number percentage using horror font
+        hbX += hbW + 8;
+        g.setFont(UITheme.FONT_HUD_HP);
+        Color hpTextCol = hp > 60 ? UITheme.COLOR_TOXIC_GREEN_BRT : (hp > 30 ? UITheme.COLOR_GOLD_BRT : UITheme.COLOR_BLOOD_RED_BRT);
+        g.setColor(Color.BLACK);
+        g.drawString(hp + "%", hbX + 1, hbY + hbH);
         g.setColor(hpTextCol);
         g.drawString(hp + "%", hbX, hbY + hbH - 1);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     private void drawCenterSection(Graphics2D g, int W, int H) {
         int t    = gameState.getTimeRemaining();
         int mins = t / 60, secs = t % 60;
-        String timerStr = String.format("⏱  %02d:%02d", mins, secs);
+        String timerStr = String.format("%02d:%02d", mins, secs);
         boolean playing = gameState.getCurrentPhase() == GameState.Phase.PLAYING;
         boolean urgent  = playing && t < 30;
 
-        // Timer text
-        g.setFont(new Font("Consolas", Font.BOLD, 28));
-        FontMetrics tfm   = g.getFontMetrics();
-        int timerX        = (W - tfm.stringWidth(timerStr)) / 2;
-        // Glow effect for urgent
+        g.setFont(UITheme.FONT_HUD_TIMER);
+        FontMetrics tfm = g.getFontMetrics();
+        int timerW = tfm.stringWidth(timerStr);
+        int iconSize = 18;
+        int totalW = iconSize + 10 + timerW;
+        int startX = (W - totalW) / 2;
+
+        Color timerColor = urgent ? UITheme.COLOR_BLOOD_RED_BRT : UITheme.COLOR_TEXT_MAIN;
+
+        // Vector Stopwatch Icon (no missing emoji glyph)
+        UITheme.drawStopwatchIcon(g, startX, 22, iconSize, timerColor);
+
+        // Timer text with deep shadow
+        int tx = startX + iconSize + 10;
+        g.setColor(Color.BLACK);
+        g.drawString(timerStr, tx + 2, 42);
         if (urgent) {
-            g.setColor(new Color(220, 40, 40, 55));
-            g.setFont(new Font("Consolas", Font.BOLD, 28));
-            g.drawString(timerStr, timerX - 1, 43 - 1);
-            g.drawString(timerStr, timerX + 1, 43 + 1);
+            g.setColor(new Color(225, 45, 45, 80));
+            g.drawString(timerStr, tx - 1, 39);
+            g.drawString(timerStr, tx + 1, 41);
         }
-        g.setColor(urgent ? new Color(235, 55, 55) : new Color(225, 228, 240));
-        g.drawString(timerStr, timerX, 43);
+        g.setColor(timerColor);
+        g.drawString(timerStr, tx, 40);
 
         // Phase label
         String phase = switch (gameState.getCurrentPhase()) {
@@ -173,37 +207,50 @@ public class HudPanel extends JPanel {
             case PLAYING   -> "SURVIVAL MODE";
             case GAME_OVER -> "GAME OVER";
         };
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        g.setFont(UITheme.FONT_HUD_LABEL);
         FontMetrics pfm = g.getFontMetrics();
-        g.setColor(new Color(85, 92, 115));
-        g.drawString(phase, (W - pfm.stringWidth(phase)) / 2, 62);
+        g.setColor(new Color(110, 120, 145));
+        g.drawString(phase, (W - pfm.stringWidth(phase)) / 2, 60);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     private void drawRightSection(Graphics2D g, Player me, int W, int H) {
-        int rx = W - 16; // right-align anchor
+        int rx = W - 20;
 
         // ── Score display ──
         String scoreLabel = "SCORE";
         String scoreVal   = (me != null) ? String.valueOf(me.getScore()) : "0";
 
-        g.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        g.setFont(UITheme.FONT_HUD_SCORE_LABEL);
         FontMetrics slm = g.getFontMetrics();
-        g.setColor(new Color(120, 112, 55));
-        g.drawString(scoreLabel, rx - slm.stringWidth(scoreLabel), 48);
+        g.setColor(new Color(160, 150, 85));
+        g.drawString(scoreLabel, rx - slm.stringWidth(scoreLabel), 46);
 
-        g.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        // Score value using horror font
+        g.setFont(UITheme.FONT_HUD_SCORE);
         FontMetrics svm = g.getFontMetrics();
-        g.setColor(new Color(218, 182, 28));
-        g.drawString(scoreVal, rx - svm.stringWidth(scoreVal), 30);
+        int scoreW = svm.stringWidth(scoreVal);
+        g.setColor(Color.BLACK);
+        g.drawString(scoreVal, rx - scoreW + 2, 28);
+        g.setColor(UITheme.COLOR_GOLD_BRT);
+        g.drawString(scoreVal, rx - scoreW, 26);
 
-        // ── Player count ──
+        // ── Connected Player Count with Vector Silhouette Icon (No missing box) ──
         int pc = gameState.getPlayers().size();
-        String pcStr = "\uD83D\uDC64 " + pc + " player" + (pc == 1 ? "" : "s");
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        String countStr = pc + " player" + (pc == 1 ? "" : "s");
+
+        g.setFont(UITheme.FONT_BUTTON_SUB);
         FontMetrics pcm = g.getFontMetrics();
-        g.setColor(new Color(95, 105, 130));
-        g.drawString(pcStr, rx - pcm.stringWidth(pcStr), 66);
+        int textW = pcm.stringWidth(countStr);
+        int iconSize = 13;
+        int totalW = iconSize + 6 + textW;
+        int px = rx - totalW;
+        int py = 64;
+
+        // Vector Player Silhouette Icon
+        UITheme.drawPlayerSilhouetteIcon(g, px, py - 11, iconSize, new Color(130, 140, 170));
+
+        // Player count text
+        g.setColor(new Color(145, 155, 180));
+        g.drawString(countStr, px + iconSize + 6, py);
     }
 }

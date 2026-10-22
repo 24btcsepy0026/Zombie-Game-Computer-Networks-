@@ -690,20 +690,42 @@ public class GameCanvas extends JPanel {
     // ── Minimap (bottom-right corner) ────────────────────────────────────────
 
     private void drawMinimap(Graphics2D g, GameState gs) {
-        int mmW = 122, mmH = 88;
-        int mmX = W - mmW - 8, mmY = H - mmH - 8;
+        int mmW = 126, mmH = 90;
+        int mmX = W - mmW - 10, mmY = H - mmH - 10;
+        int pX = mmX - 4, pY = mmY - 18, pW = mmW + 8, pH = mmH + 22;
 
-        // Panel background
-        g.setColor(new Color(5, 8, 5, 215));
-        g.fillRoundRect(mmX - 3, mmY - 16, mmW + 6, mmH + 19, 7, 7);
-        g.setColor(new Color(42, 58, 42, 200));
-        g.setStroke(new BasicStroke(1.0f));
-        g.drawRoundRect(mmX - 3, mmY - 16, mmW + 6, mmH + 19, 7, 7);
+        // Scanner panel background
+        g.setColor(new Color(6, 10, 14, 230));
+        g.fillRoundRect(pX, pY, pW, pH, 8, 8);
 
-        // "MINIMAP" label
-        g.setFont(new Font("Segoe UI", Font.BOLD, 9));
-        g.setColor(new Color(85, 128, 85));
-        g.drawString("MINIMAP", mmX, mmY - 4);
+        // Toxic radar border with glow
+        g.setColor(new Color(25, 75, 30));
+        g.drawRoundRect(pX, pY, pW, pH, 8, 8);
+        g.setColor(new Color(55, 195, 70, 140));
+        g.drawRoundRect(pX + 1, pY + 1, pW - 2, pH - 2, 7, 7);
+
+        // Corner bracket accents (tactical scanner style)
+        int cLen = 6;
+        g.setColor(UITheme.COLOR_TOXIC_GREEN_BRT);
+        // Top-Left
+        g.drawLine(pX, pY + cLen, pX, pY);
+        g.drawLine(pX, pY, pX + cLen, pY);
+        // Top-Right
+        g.drawLine(pX + pW - cLen, pY, pX + pW, pY);
+        g.drawLine(pX + pW, pY, pX + pW, pY + cLen);
+        // Bottom-Left
+        g.drawLine(pX, pY + pH - cLen, pX, pY + pH);
+        g.drawLine(pX, pY + pH, pX + cLen, pY + pH);
+        // Bottom-Right
+        g.drawLine(pX + pW - cLen, pY + pH, pX + pW, pY + pH);
+        g.drawLine(pX + pW, pY + pH - cLen, pX + pW, pY + pH);
+
+        // "MINIMAP" label using pre-allocated horror font
+        g.setFont(UITheme.FONT_MINIMAP_LABEL);
+        g.setColor(Color.BLACK);
+        g.drawString("MINIMAP", mmX + 1, mmY - 4);
+        g.setColor(UITheme.COLOR_TOXIC_GREEN_BRT);
+        g.drawString("MINIMAP", mmX, mmY - 5);
 
         // Tile grid
         float sx = (float) mmW / GameState.MAP_WIDTH;
@@ -714,9 +736,9 @@ public class GameCanvas extends JPanel {
                 int tx = mmX + (int)(col * sx), ty = mmY + (int)(row * sy);
                 int tw = Math.max(1, (int) sx + 1), th = Math.max(1, (int) sy + 1);
                 switch (tile) {
-                    case 0 -> g.setColor(new Color(30, 82, 30));
-                    case 1 -> g.setColor(new Color(70, 74, 90));
-                    case 2 -> g.setColor(new Color(20, 105, 65));
+                    case 0 -> g.setColor(new Color(25, 75, 25));
+                    case 1 -> g.setColor(new Color(55, 60, 75));
+                    case 2 -> g.setColor(new Color(18, 95, 55));
                 }
                 g.fillRect(tx, ty, tw, th);
             }
@@ -727,7 +749,7 @@ public class GameCanvas extends JPanel {
             if (pk.isCollected()) continue;
             int px = mmX + (int)((float) pk.getX() / GameState.CANVAS_W * mmW);
             int py = mmY + (int)((float) pk.getY() / GameState.CANVAS_H * mmH);
-            g.setColor(pk.getType() == Pickup.Type.MEDKIT ? new Color(215, 38, 38) : new Color(215, 178, 0));
+            g.setColor(pk.getType() == Pickup.Type.MEDKIT ? new Color(225, 45, 45) : UITheme.COLOR_GOLD_BRT);
             g.fillRect(px - 1, py - 1, 3, 3);
         }
 
@@ -736,7 +758,7 @@ public class GameCanvas extends JPanel {
             int px = mmX + (int)((float) p.getX() / GameState.CANVAS_W * mmW);
             int py = mmY + (int)((float) p.getY() / GameState.CANVAS_H * mmH);
             boolean me = p.getId().equals(myPlayerId);
-            g.setColor(p.isInfected() ? new Color(55, 205, 68) : new Color(62, 132, 255));
+            g.setColor(p.isInfected() ? UITheme.COLOR_TOXIC_GREEN_BRT : new Color(65, 145, 255));
             g.fillOval(px - 2, py - 2, 5, 5);
             if (me) {
                 g.setColor(Color.WHITE);
