@@ -4,6 +4,9 @@ import com.zombiesurvival.shared.GameState;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Manages the 3D block grid for the 25×18 arena.
  *
@@ -11,7 +14,7 @@ import org.joml.Vector3f;
  * ──────────────────────
  *   bx  = MAP column  (0 .. WORLD_W-1 = 0..24)
  *   bz  = MAP row     (0 .. WORLD_D-1 = 0..17)
- *   by  = block layer (0 = ground, 1..2 = pillar/wall layers)
+ *   by  = block layer (0 = ground, 1..3 = pillar/wall layers, 4..7 = tree/canopy layers)
  *
  *   A block at (bx,by,bz) occupies world space
  *       X ∈ [bx, bx+1], Y ∈ [by, by+1], Z ∈ [bz, bz+1]
@@ -31,18 +34,24 @@ import org.joml.Vector3f;
 public class VoxelWorld {
 
     // ── Block type IDs ────────────────────────────────────────────────────────
-    public static final int AIR         = 0;
-    public static final int GRASS       = 1;
-    public static final int SAND        = 2;
-    public static final int SNOW        = 3;
-    public static final int NETHER      = 4;
-    public static final int STONE_PLAZA = 5;
-    public static final int STONE_WALL  = 6;  // 3-block border wall
-    public static final int PILLAR      = 7;  // 2-block interior obstacle
+    public static final int AIR              = 0;
+    public static final int GRASS            = 1;
+    public static final int SAND             = 2;
+    public static final int SNOW             = 3;
+    public static final int NETHER           = 4;
+    public static final int STONE_PLAZA      = 5;
+    public static final int STONE_WALL       = 6;  // 3-block border wall
+    public static final int PILLAR           = 7;  // 2-block interior obstacle
+    public static final int OAK_WOOD         = 8;
+    public static final int OAK_LEAVES       = 9;
+    public static final int SPRUCE_WOOD      = 10;
+    public static final int SPRUCE_LEAVES    = 11;
+    public static final int CACTUS           = 12;
+    public static final int BLACKSTONE_SPIRE = 13;
 
     // ── World dimensions ──────────────────────────────────────────────────────
     public static final int WORLD_W = 25;  // MAP_WIDTH  – X axis
-    public static final int WORLD_H = 4;   // block layer count (0..3)
+    public static final int WORLD_H = 8;   // block layer count (0..7)
     public static final int WORLD_D = 18;  // MAP_HEIGHT – Z axis
 
     // ── Tunable biome split coordinates (interior block coords) ───────────────
@@ -81,15 +90,17 @@ public class VoxelWorld {
                                   bz == 0 || bz == WORLD_D - 1);
 
                 if (border) {
-                    // 3-block-high tinted stone-brick border wall
+                    // 3-block-high stone-brick border wall above ground (layers 0..3)
                     blocks[bx][0][bz] = STONE_WALL;
                     blocks[bx][1][bz] = STONE_WALL;
                     blocks[bx][2][bz] = STONE_WALL;
+                    blocks[bx][3][bz] = STONE_WALL;
 
                 } else if (cell == 1) {
-                    // Interior obstacle → 2-block pillar (high enough to block movement)
+                    // Interior obstacle → 2-block pillar (layers 0..2)
                     blocks[bx][0][bz] = PILLAR;
                     blocks[bx][1][bz] = PILLAR;
+                    blocks[bx][2][bz] = PILLAR;
 
                 } else {
                     // Walkable floor (MAP value 0 or 2) → single ground block
@@ -97,6 +108,9 @@ public class VoxelWorld {
                 }
             }
         }
+
+        // Place props deterministically in the 4 biome corners
+        placeProps(map);
     }
 
     /**
@@ -146,6 +160,160 @@ public class VoxelWorld {
         return STONE_PLAZA;
     }
 
+    // ── Deterministic Props Placement ─────────────────────────────────────────
+
+    private static int hashCoords(int x, int z) {
+        int h = x * 374761393 + z * 668265263;
+        h = (h ^ (h >> 13)) * 1274126177;
+        return (h ^ (h >> 16)) & 0x7FFFFFFF;
+    }
+
+    private void placeProps(int[][] map) {
+        // 1. Forest corner (top-left): oak trees
+        placeCornerProps(map, 2, 7, 2, 5, 0, 3, 3.0f);
+
+        // 2. Snow corner (bottom-left): spruce trees
+        placeCornerProps(map, 2, 7, 12, 15, 1, 3, 3.0f);
+
+        // 3. Desert corner (top-right): cacti
+        placeCornerProps(map, 17, 22, 2, 5, 2, 4, 2.2f);
+
+        // 4. Nether corner (bottom-right): blackstone spires
+        placeCornerProps(map, 17, 22, 12, 15, 3, 4, 2.2f);
+    }
+
+    private void placeCornerProps(int[][] map, int x0, int x1, int z0, int z1, int type, int maxCount, float minDist) {
+        List<int[]> candidates = new ArrayList<>();
+        for (int z = z0; z <= z1; z++) {
+            for (int x = x0; x <= x1; x++) {
+                if (map[z][x] == 0) { // Walkable floor, no obstacle
+                    candidates.add(new int[]{x, z, hashCoords(x, z)});
+                }
+            }
+        }
+
+        // Deterministic sort by hash
+        candidates.sort((a, b) -> Integer.compare(a[2], b[2]));
+
+        List<int[]> chosen = new ArrayList<>();
+        for (int[] c : candidates) {
+            int cx = c[0];
+            int cz = c[1];
+            boolean farEnough = true;
+            for (int[] p : chosen) {
+                float dx = cx - p[0];
+                float dz = cz - p[1];
+                if (Math.sqrt(dx * dx + dz * dz) < minDist) {
+                    farEnough = false;
+                    break;
+                }
+            }
+            if (farEnough) {
+                chosen.add(new int[]{cx, cz, c[2]});
+                if (chosen.size() >= maxCount) break;
+            }
+        }
+
+        for (int[] p : chosen) {
+            int px = p[0];
+            int pz = p[1];
+            int h = p[2];
+            switch (type) {
+                case 0: buildOakTree(px, pz, h); break;
+                case 1: buildSpruceTree(px, pz, h); break;
+                case 2: buildCactus(px, pz, h); break;
+                case 3: buildNetherSpire(px, pz, h); break;
+            }
+        }
+    }
+
+    private void setBlock(int x, int y, int z, int block) {
+        if (x <= 0 || x >= WORLD_W - 1 || z <= 0 || z >= WORLD_D - 1 || y < 0 || y >= WORLD_H) return;
+        blocks[x][y][z] = block;
+    }
+
+    private void setLeaf(int x, int y, int z, int leafBlock) {
+        if (x <= 0 || x >= WORLD_W - 1 || z <= 0 || z >= WORLD_D - 1 || y < 0 || y >= WORLD_H) return;
+        if (blocks[x][y][z] == AIR) {
+            blocks[x][y][z] = leafBlock;
+        }
+    }
+
+    private void buildOakTree(int tx, int tz, int h) {
+        int trunkH = (h % 2 == 0) ? 3 : 4;
+        for (int y = 1; y <= trunkH; y++) {
+            setBlock(tx, y, tz, OAK_WOOD);
+        }
+        // Canopy: 3x3 leaves at trunk top layers, cross at apex
+        int startY = trunkH - 1;
+        for (int y = startY; y <= trunkH; y++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    setLeaf(tx + dx, y, tz + dz, OAK_LEAVES);
+                }
+            }
+        }
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                setLeaf(tx + dx, trunkH + 1, tz + dz, OAK_LEAVES);
+            }
+        }
+        // Apex cross
+        setLeaf(tx, trunkH + 2, tz, OAK_LEAVES);
+        setLeaf(tx + 1, trunkH + 2, tz, OAK_LEAVES);
+        setLeaf(tx - 1, trunkH + 2, tz, OAK_LEAVES);
+        setLeaf(tx, trunkH + 2, tz + 1, OAK_LEAVES);
+        setLeaf(tx, trunkH + 2, tz - 1, OAK_LEAVES);
+    }
+
+    private void buildSpruceTree(int tx, int tz, int h) {
+        int trunkH = (h % 2 == 0) ? 3 : 4;
+        for (int y = 1; y <= trunkH; y++) {
+            setBlock(tx, y, tz, SPRUCE_WOOD);
+        }
+        // Narrow conical spruce canopy
+        setLeaf(tx + 1, 2, tz, SPRUCE_LEAVES);
+        setLeaf(tx - 1, 2, tz, SPRUCE_LEAVES);
+        setLeaf(tx, 2, tz + 1, SPRUCE_LEAVES);
+        setLeaf(tx, 2, tz - 1, SPRUCE_LEAVES);
+
+        for (int y = 3; y <= trunkH; y++) {
+            setLeaf(tx + 1, y, tz, SPRUCE_LEAVES);
+            setLeaf(tx - 1, y, tz, SPRUCE_LEAVES);
+            setLeaf(tx, y, tz + 1, SPRUCE_LEAVES);
+            setLeaf(tx, y, tz - 1, SPRUCE_LEAVES);
+        }
+        setLeaf(tx, trunkH + 1, tz, SPRUCE_LEAVES);
+        setLeaf(tx + 1, trunkH + 1, tz, SPRUCE_LEAVES);
+        setLeaf(tx - 1, trunkH + 1, tz, SPRUCE_LEAVES);
+        setLeaf(tx, trunkH + 1, tz + 1, SPRUCE_LEAVES);
+        setLeaf(tx, trunkH + 1, tz - 1, SPRUCE_LEAVES);
+
+        setLeaf(tx, trunkH + 2, tz, SPRUCE_LEAVES);
+    }
+
+    private void buildCactus(int cx, int cz, int h) {
+        int cactusH = (h % 2 == 0) ? 2 : 3;
+        for (int y = 1; y <= cactusH; y++) {
+            setBlock(cx, y, cz, CACTUS);
+        }
+        if (cactusH == 3 && (h & 1) != 0) {
+            int armX = (h % 3 == 0) ? 1 : -1;
+            setLeaf(cx + armX, 2, cz, CACTUS);
+        }
+    }
+
+    private void buildNetherSpire(int sx, int sz, int h) {
+        int spireH = (h % 2 == 0) ? 2 : 3;
+        for (int y = 1; y <= spireH; y++) {
+            setBlock(sx, y, sz, BLACKSTONE_SPIRE);
+        }
+        if (spireH == 3) {
+            int sideX = (h % 2 == 0) ? 1 : -1;
+            setLeaf(sx + sideX, 1, sz, BLACKSTONE_SPIRE);
+        }
+    }
+
     // ── Block accessors ───────────────────────────────────────────────────────
 
     /** Returns AIR for out-of-bounds queries (used by face-cull in VoxelChunk). */
@@ -164,28 +332,58 @@ public class VoxelWorld {
     /** Atlas tile ID for the top (+Y) face of the given block type. */
     public int getTopTile(int block) {
         switch (block) {
-            case GRASS:       return TextureAtlas3D.TILE_GRASS_TOP;
-            case SAND:        return TextureAtlas3D.TILE_SAND;
-            case SNOW:        return TextureAtlas3D.TILE_SNOW_TOP;
-            case NETHER:      return TextureAtlas3D.TILE_NETHERRACK;
-            case STONE_PLAZA: return TextureAtlas3D.TILE_COBBLESTONE;
-            case STONE_WALL:  return TextureAtlas3D.TILE_COBBLESTONE;
-            case PILLAR:      return TextureAtlas3D.TILE_COBBLESTONE;
-            default:          return TextureAtlas3D.TILE_COBBLESTONE;
+            case GRASS:            return TextureAtlas3D.TILE_GRASS_TOP;
+            case SAND:             return TextureAtlas3D.TILE_SAND;
+            case SNOW:             return TextureAtlas3D.TILE_SNOW_TOP;
+            case NETHER:           return TextureAtlas3D.TILE_NETHERRACK;
+            case STONE_PLAZA:      return TextureAtlas3D.TILE_COBBLESTONE;
+            case STONE_WALL:       return TextureAtlas3D.TILE_STONE_BRICK;
+            case PILLAR:           return TextureAtlas3D.TILE_STONE_BRICK;
+            case OAK_WOOD:         return TextureAtlas3D.TILE_OAK_WOOD;
+            case OAK_LEAVES:       return TextureAtlas3D.TILE_OAK_LEAF;
+            case SPRUCE_WOOD:      return TextureAtlas3D.TILE_SPRUCE_WOOD;
+            case SPRUCE_LEAVES:    return TextureAtlas3D.TILE_SPRUCE_LEAF;
+            case CACTUS:           return TextureAtlas3D.TILE_CACTUS_TOP;
+            case BLACKSTONE_SPIRE: return TextureAtlas3D.TILE_BLACKSTONE;
+            default:               return TextureAtlas3D.TILE_COBBLESTONE;
         }
     }
 
     /** Atlas tile ID for the four side faces of the given block type. */
     public int getSideTile(int block) {
         switch (block) {
-            case GRASS:       return TextureAtlas3D.TILE_GRASS_SIDE;
-            case SAND:        return TextureAtlas3D.TILE_SANDSTONE;
-            case SNOW:        return TextureAtlas3D.TILE_SNOW_SIDE;
-            case NETHER:      return TextureAtlas3D.TILE_NETHERRACK;
-            case STONE_PLAZA: return TextureAtlas3D.TILE_COBBLESTONE;
-            case STONE_WALL:  return TextureAtlas3D.TILE_COBBLESTONE;
-            case PILLAR:      return TextureAtlas3D.TILE_COBBLESTONE;
-            default:          return TextureAtlas3D.TILE_COBBLESTONE;
+            case GRASS:            return TextureAtlas3D.TILE_GRASS_SIDE;
+            case SAND:             return TextureAtlas3D.TILE_SANDSTONE;
+            case SNOW:             return TextureAtlas3D.TILE_SNOW_SIDE;
+            case NETHER:           return TextureAtlas3D.TILE_NETHERRACK;
+            case STONE_PLAZA:      return TextureAtlas3D.TILE_COBBLESTONE;
+            case STONE_WALL:       return TextureAtlas3D.TILE_STONE_BRICK;
+            case PILLAR:           return TextureAtlas3D.TILE_STONE_BRICK;
+            case OAK_WOOD:         return TextureAtlas3D.TILE_OAK_WOOD;
+            case OAK_LEAVES:       return TextureAtlas3D.TILE_OAK_LEAF;
+            case SPRUCE_WOOD:      return TextureAtlas3D.TILE_SPRUCE_WOOD;
+            case SPRUCE_LEAVES:    return TextureAtlas3D.TILE_SPRUCE_LEAF;
+            case CACTUS:           return TextureAtlas3D.TILE_CACTUS_SIDE;
+            case BLACKSTONE_SPIRE: return TextureAtlas3D.TILE_BLACKSTONE;
+            default:               return TextureAtlas3D.TILE_COBBLESTONE;
+        }
+    }
+
+    /** Atlas tile ID for the bottom (-Y) face of the given block type. */
+    public int getBottomTile(int block) {
+        switch (block) {
+            case GRASS:            return TextureAtlas3D.TILE_DIRT;
+            case SNOW:             return TextureAtlas3D.TILE_DIRT;
+            case SAND:             return TextureAtlas3D.TILE_SANDSTONE;
+            case STONE_WALL:       return TextureAtlas3D.TILE_STONE_BRICK;
+            case PILLAR:           return TextureAtlas3D.TILE_STONE_BRICK;
+            case OAK_WOOD:         return TextureAtlas3D.TILE_OAK_WOOD;
+            case OAK_LEAVES:       return TextureAtlas3D.TILE_OAK_LEAF;
+            case SPRUCE_WOOD:      return TextureAtlas3D.TILE_SPRUCE_WOOD;
+            case SPRUCE_LEAVES:    return TextureAtlas3D.TILE_SPRUCE_LEAF;
+            case CACTUS:           return TextureAtlas3D.TILE_CACTUS_TOP;
+            case BLACKSTONE_SPIRE: return TextureAtlas3D.TILE_BLACKSTONE;
+            default:               return getSideTile(block);
         }
     }
 

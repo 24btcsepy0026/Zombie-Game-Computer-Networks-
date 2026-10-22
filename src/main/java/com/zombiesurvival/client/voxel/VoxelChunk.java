@@ -38,8 +38,8 @@ public class VoxelChunk {
      * Call once after GL is initialised, before the first render.
      */
     public void buildMesh(VoxelWorld world, TextureAtlas3D atlas) {
-        // Upper bound: every block, every face (5 visible), 6 vertices each
-        int maxV = VoxelWorld.WORLD_W * VoxelWorld.WORLD_H * VoxelWorld.WORLD_D * 5 * 6;
+        // Upper bound: every block, every face (6 visible), 6 vertices each
+        int maxV = VoxelWorld.WORLD_W * VoxelWorld.WORLD_H * VoxelWorld.WORLD_D * 6 * 6;
         FloatBuffer buf = BufferUtils.createFloatBuffer(maxV * FPV);
         int vCount = 0;
 
@@ -74,7 +74,11 @@ public class VoxelChunk {
                         float[] uv = atlas.getUVs(world.getSideTile(block));
                         vCount += putNorth(buf, bx, by, bz, uv, 0.65f);
                     }
-                    // Bottom (-Y): always omitted
+                    // Bottom (-Y): only for elevated blocks with air underneath
+                    if (by > 0 && !world.isSolid(bx, by - 1, bz)) {
+                        float[] uv = atlas.getUVs(world.getBottomTile(block));
+                        vCount += putBottom(buf, bx, by, bz, uv, 0.55f);
+                    }
                 }
             }
         }
@@ -166,6 +170,19 @@ public class VoxelChunk {
         v(b, x1, y0, z,  u0, v1,  l);
         v(b, x0, y1, z,  u1, v0,  l);
         v(b, x1, y1, z,  u0, v0,  l);
+        return 6;
+    }
+
+    /** Bottom face: normal = -Y, at y = by. CCW winding when viewed from below. */
+    private int putBottom(FloatBuffer b, int bx, int by, int bz, float[] uv, float l) {
+        float x0 = bx, x1 = bx + 1f, y = by, z0 = bz, z1 = bz + 1f;
+        float u0 = uv[0], v0 = uv[1], u1 = uv[2], v1 = uv[3];
+        v(b, x0, y, z1,  u0, v1,  l);
+        v(b, x0, y, z0,  u0, v0,  l);
+        v(b, x1, y, z0,  u1, v0,  l);
+        v(b, x0, y, z1,  u0, v1,  l);
+        v(b, x1, y, z0,  u1, v0,  l);
+        v(b, x1, y, z1,  u1, v1,  l);
         return 6;
     }
 

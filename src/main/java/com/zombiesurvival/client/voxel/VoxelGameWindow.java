@@ -275,7 +275,7 @@ public class VoxelGameWindow {
 
                 // Small HUD controls guide in top-left
                 font.drawText(shader, "WASD: Move  ARROWS: Turn/Pitch  SHIFT: Sprint  SPACE: Jump  ESC: Pause", 14, 14, 0.8f, 1.0f, 1.0f, 1.0f, 0.9f);
-                font.drawText(shader, "ZOMBIE SURVIVAL 3D [MILESTONE 2A]", 14, 34, 0.8f, 0.4f, 1.0f, 0.4f, 0.9f);
+                font.drawText(shader, "ZOMBIE SURVIVAL 3D [MILESTONE 2B]", 14, 34, 0.8f, 0.4f, 1.0f, 0.4f, 0.9f);
             } else {
                 // Pause Overlay: dark tint covering full screen
                 quad2D.drawRect(shader, 0, 0, width, height, 0.0f, 0.0f, 0.0f, 0.65f);

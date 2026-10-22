@@ -35,6 +35,11 @@ public class TextureAtlas3D {
     public static final int TILE_BLACKSTONE     = 11;
     public static final int TILE_COBBLESTONE    = 12;
     public static final int TILE_CLOUD          = 13;
+    public static final int TILE_STONE_BRICK    = 14;
+    public static final int TILE_CACTUS_TOP     = 15;
+    public static final int TILE_CACTUS_SIDE    = 16;
+    public static final int TILE_SPRUCE_WOOD    = 17;
+    public static final int TILE_SPRUCE_LEAF    = 18;
 
     private final int textureId;
 
@@ -56,6 +61,11 @@ public class TextureAtlas3D {
         paintTile(atlas, TILE_BLACKSTONE,    generateBlackstone());
         paintTile(atlas, TILE_COBBLESTONE,   generateCobblestone());
         paintTile(atlas, TILE_CLOUD,         generateCloud());
+        paintTile(atlas, TILE_STONE_BRICK,   generateStoneBrick());
+        paintTile(atlas, TILE_CACTUS_TOP,    generateCactusTop());
+        paintTile(atlas, TILE_CACTUS_SIDE,   generateCactusSide());
+        paintTile(atlas, TILE_SPRUCE_WOOD,   generateSpruceWood());
+        paintTile(atlas, TILE_SPRUCE_LEAF,   generateSpruceLeaf());
 
         // Upload to OpenGL
         textureId = glGenTextures();
@@ -307,6 +317,137 @@ public class TextureAtlas3D {
         for (int y = 0; y < 16; y++) {
             for (int x = 0; x < 16; x++) {
                 img.setRGB(x, y, cloud.getRGB());
+            }
+        }
+        return img;
+    }
+
+    private BufferedImage generateStoneBrick() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Color mortar = new Color(70, 70, 70);
+        Color brickBase = new Color(130, 130, 130);
+        Color brickLight = new Color(145, 145, 145);
+        Color brickDark = new Color(112, 112, 112);
+        Random r = new Random(1414);
+
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int n = r.nextInt(10);
+                Color c = (n < 5) ? brickBase : ((n < 8) ? brickLight : brickDark);
+                img.setRGB(x, y, c.getRGB());
+            }
+        }
+
+        // Horizontal mortar lines
+        for (int x = 0; x < 16; x++) {
+            img.setRGB(x, 3, mortar.getRGB());
+            img.setRGB(x, 7, mortar.getRGB());
+            img.setRGB(x, 11, mortar.getRGB());
+            img.setRGB(x, 15, mortar.getRGB());
+        }
+
+        // Vertical mortar lines: alternating running bond
+        for (int y = 0; y < 3; y++) {
+            img.setRGB(7, y, mortar.getRGB());
+            img.setRGB(15, y, mortar.getRGB());
+        }
+        for (int y = 8; y < 11; y++) {
+            img.setRGB(7, y, mortar.getRGB());
+            img.setRGB(15, y, mortar.getRGB());
+        }
+        for (int y = 4; y < 7; y++) {
+            img.setRGB(3, y, mortar.getRGB());
+            img.setRGB(11, y, mortar.getRGB());
+        }
+        for (int y = 12; y < 15; y++) {
+            img.setRGB(3, y, mortar.getRGB());
+            img.setRGB(11, y, mortar.getRGB());
+        }
+        return img;
+    }
+
+    private BufferedImage generateCactusSide() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Color greenBase = new Color(88, 142, 54);
+        Color greenLight = new Color(102, 160, 64);
+        Color greenRib = new Color(54, 96, 32);
+        Color thornDark = new Color(28, 48, 18);
+        Color thornLight = new Color(220, 230, 205);
+        Random r = new Random(1515);
+
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (x % 4 == 0) {
+                    img.setRGB(x, y, greenRib.getRGB());
+                } else {
+                    img.setRGB(x, y, (r.nextBoolean() ? greenBase : greenLight).getRGB());
+                }
+            }
+        }
+
+        int[][] thorns = {
+            {2, 3}, {6, 7}, {10, 2}, {14, 8},
+            {2, 11}, {6, 15}, {10, 10}, {14, 14}
+        };
+        for (int[] t : thorns) {
+            img.setRGB(t[0], t[1], thornDark.getRGB());
+            if (t[0] + 1 < 16) img.setRGB(t[0] + 1, t[1], thornLight.getRGB());
+        }
+        return img;
+    }
+
+    private BufferedImage generateCactusTop() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Color outer = new Color(54, 96, 32);
+        Color mid = new Color(88, 142, 54);
+        Color center = new Color(115, 172, 70);
+
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int dx = Math.abs(x - 8);
+                int dy = Math.abs(y - 8);
+                int dist = Math.max(dx, dy);
+                if (dist >= 7) {
+                    img.setRGB(x, y, outer.getRGB());
+                } else if (dist >= 3) {
+                    img.setRGB(x, y, mid.getRGB());
+                } else {
+                    img.setRGB(x, y, center.getRGB());
+                }
+            }
+        }
+        return img;
+    }
+
+    private BufferedImage generateSpruceWood() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Color darkBark = new Color(42, 28, 16);
+        Color midBark = new Color(60, 42, 24);
+        Color lightBark = new Color(78, 54, 32);
+        Random r = new Random(1717);
+
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int n = r.nextInt(10);
+                Color c = (x % 3 == 0) ? darkBark : ((n < 6) ? midBark : lightBark);
+                img.setRGB(x, y, c.getRGB());
+            }
+        }
+        return img;
+    }
+
+    private BufferedImage generateSpruceLeaf() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Color base = new Color(34, 62, 40);
+        Color dark = new Color(22, 44, 28);
+        Color light = new Color(46, 80, 52);
+        Random r = new Random(1818);
+
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int n = r.nextInt(10);
+                Color c = (n < 4) ? base : ((n < 8) ? dark : light);
+                img.setRGB(x, y, c.getRGB());
             }
         }
         return img;
