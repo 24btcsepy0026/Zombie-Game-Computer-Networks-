@@ -24,6 +24,8 @@ if not exist "out\com\zombiesurvival\ZombieGame.class" (
     )
     
     echo Compilation successful!
+    if not exist "out\fonts" mkdir out\fonts
+    copy /Y "resources\fonts\*" "out\fonts\" >nul 2>&1
     echo.
 )
 
