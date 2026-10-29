@@ -14,953 +14,1084 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Main rendering canvas with camera system (viewport 960×704 over 2560×1920 world).
+ * Last-Day-on-Earth-style top-down game canvas.
  *
  * Render order:
- *  1. Tile pass (grass / wall / safe-zone textures)
- *  2. 3-D wall faces
- *  3. Decorative trees & crates
- *  4. Pickups (glow + bob)
- *  5. NPC zombies
- *  6. Player sprites (direction-aware)
- *  7. Bullets (trails)
- *  8. Particles (blood / sparkle / infection)
- *  9. Dynamic lighting overlay
- * 10. Kill feed (top-right, world-space)
- * 11. Minimap (corner, screen-space)
- * 12. Crosshair
- * 13. Zombie vignette
- * 14. Lobby / game-over overlays
+ *  1.  Ground tiles  (LDOE palette: asphalt / dirt / grass variants / concrete)
+ *  2.  Ground decals (blood pools, debris — world-space permanent)
+ *  3.  Building interior floors
+ *  4.  Wall bases + pseudo-3D shadow faces
+ *  5.  Environmental props (trees, crates, rocks, crashed cars)
+ *  6.  Pickups (glowing bob)
+ *  7.  NPC zombies (shambling sprites)
+ *  8.  Player characters (top-down with weapon arm)
+ *  9.  Bullets / muzzle flash
+ * 10.  Particles (blood splatter / sparkles / infection cloud)
+ * 11.  Dynamic lighting overlay (dark ambient + warm player lantern)
+ * 12.  Kill-feed (screen-space)
+ * 13.  Minimap (LDOE dark style)
+ * 14.  Crosshair (dot + ring)
+ * 15.  Survivor / zombie vignette
+ * 16.  Lobby / connecting / game-over overlays
  */
 public class GameCanvas extends JPanel {
 
     // ── Viewport ──────────────────────────────────────────────────────────────
-    public static final int VW  = GameState.VIEWPORT_W;  // 960
-    public static final int VH  = GameState.VIEWPORT_H;  // 704
-    private static final int TS  = GameState.TILE_SIZE;
-    private static final int MW  = GameState.MAP_WIDTH;
-    private static final int MH  = GameState.MAP_HEIGHT;
-    private static final int CW  = GameState.CANVAS_W;   // 2560
-    private static final int CH  = GameState.CANVAS_H;   // 1920
+    public static final int VW = GameState.VIEWPORT_W;
+    public static final int VH = GameState.VIEWPORT_H;
+    private static final int TS = GameState.TILE_SIZE;
+    private static final int MW = GameState.MAP_WIDTH;
+    private static final int MH = GameState.MAP_HEIGHT;
+    private static final int CW = GameState.CANVAS_W;
+    private static final int CH = GameState.CANVAS_H;
 
-    // ── Camera (world-space top-left of viewport) ─────────────────────────────
-    private float camX = 0, camY = 0;
-    private float tgtX = 0, tgtY = 0;
+    // ── LDOE Color Palette ────────────────────────────────────────────────────
+    private static final Color C_GRASS_A   = new Color(42, 58, 28);   // brighter olive grass
+    private static final Color C_GRASS_B   = new Color(36, 50, 22);   // slightly darker grass
+    private static final Color C_CONCRETE  = new Color(62, 62, 68);   // lighter gray concrete
+    private static final Color C_ASPHALT   = new Color(36, 36, 42);   // dark road
+    private static final Color C_DIRT      = new Color(68, 52, 32);   // brown dirt
+    private static final Color C_SAFE_FL   = new Color(30, 54, 30);   // safe zone floor
+    private static final Color C_WOOD_FL   = new Color(60, 44, 26);   // interior wood
+    private static final Color C_WALL_TOP  = new Color(78, 72, 64);   // brighter stone wall top
+    private static final Color C_BLOOD_DK  = new Color(70,  5,  5);   // dark blood
+    private static final Color C_SKIN      = new Color(210, 172, 118);
+    private static final Color C_SKIN_Z    = new Color(118, 135, 65);
 
     // ── Tile textures ─────────────────────────────────────────────────────────
-    private final BufferedImage tileGrassA, tileGrassB, tileWall, tileSafe, tileRoad;
+    private final BufferedImage tileGrassA, tileGrassB, tileWall, tileSafe;
+    private final BufferedImage tileConcrete, tileAsphalt, tileDirt, tileWoodFloor;
+
+    // ── Camera ────────────────────────────────────────────────────────────────
+    private float camX, camY, tgtX, tgtY;
 
     // ── State ─────────────────────────────────────────────────────────────────
     private volatile GameState gameState;
     private volatile GameState prevState;
     private volatile String    myPlayerId;
-    private int animTick = 0;
+    private int animTick;
 
-    // Facing angles & last positions per player
+    // Per-player animation
     private final Map<String, Double>  facingAngles  = new ConcurrentHashMap<>();
     private final Map<String, float[]> lastPositions = new ConcurrentHashMap<>();
+    private final Map<String, Float>   walkPhases    = new ConcurrentHashMap<>();  // 0..2π
 
-    // Mouse crosshair (screen space)
-    private volatile int mouseScreenX = VW/2, mouseScreenY = VH/2;
+    // Mouse
+    private volatile int mouseScreenX = VW / 2, mouseScreenY = VH / 2;
 
-    // ── Particles ─────────────────────────────────────────────────────────────
-    private final List<float[]> particles = new ArrayList<>();
-    private final ConcurrentLinkedQueue<float[]> particleEvents = new ConcurrentLinkedQueue<>();
+    // Particles  [x,y,vx,vy, life,maxLife, r,g,b, size, type]
+    private final List<float[]>                   particles     = new ArrayList<>();
+    private final ConcurrentLinkedQueue<float[]>  particleEvts  = new ConcurrentLinkedQueue<>();
 
-    // ── Screen shake ──────────────────────────────────────────────────────────
-    private final AtomicInteger shakeRequest = new AtomicInteger(0);
-    private int shakeFrames = 0, shakeIntensity = 3;
+    // Blood decals  [wx, wy, r, angle, opacity]
+    private final List<float[]> bloodDecals = new ArrayList<>();
 
-    // ── Dynamic lighting ──────────────────────────────────────────────────────
+    // Screen-shake
+    private final AtomicInteger shakeReq = new AtomicInteger(0);
+    private int shakeFrames, shakeAmt = 3;
+
+    // Lighting
     private BufferedImage lightMap;
 
-    // ── Input controller reference (for camera offset updates) ───────────────
+    // Sound bookkeeping
+    private int     lastTimeSec   = Integer.MAX_VALUE;
+    private boolean warnedPlayed;
+
+    // Input
     private InputController inputController;
 
-    // ── Sound trigger tracking ────────────────────────────────────────────────
-    private int     lastTimeRemaining = Integer.MAX_VALUE;
-    private boolean warningPlayed     = false;
+    // Prop RNG (stable across frames)
+    private final Random propRng = new Random(12345L);
+
+    // Pre-computed prop positions (trees / crates) per visible area
+    private final List<int[]> props = new ArrayList<>(); // [wx, wy, type, seed]
 
     // ═══════════════════════════════════════════════════════════════════════════
 
     public GameCanvas() {
         setPreferredSize(new Dimension(VW, VH));
-        setBackground(new Color(5, 10, 5));
+        setMinimumSize(new Dimension(640, 480));
+        setBackground(new Color(8, 10, 6));
 
-        tileGrassA = makeTileGrass(0);
-        tileGrassB = makeTileGrass(1);
-        tileWall   = makeTileWall();
-        tileSafe   = makeTileSafe();
-        tileRoad   = makeTileRoad();
+        tileGrassA   = makeTileGrass(0, C_GRASS_A);
+        tileGrassB   = makeTileGrass(1, C_GRASS_B);
+        tileWall     = makeTileWall();
+        tileSafe     = makeTileSafe();
+        tileConcrete = makeTileConcrete();
+        tileAsphalt  = makeTileAsphalt();
+        tileDirt     = makeTileDirt();
+        tileWoodFloor= makeTileWoodFloor();
 
-        // Track mouse for crosshair
+        buildProps();
+
         addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
-            @Override public void mouseMoved  (java.awt.event.MouseEvent e) { mouseScreenX = e.getX(); mouseScreenY = e.getY(); }
-            @Override public void mouseDragged(java.awt.event.MouseEvent e) { mouseScreenX = e.getX(); mouseScreenY = e.getY(); }
+            @Override public void mouseMoved  (java.awt.event.MouseEvent e) { mouseScreenX=e.getX(); mouseScreenY=e.getY(); }
+            @Override public void mouseDragged(java.awt.event.MouseEvent e) { mouseScreenX=e.getX(); mouseScreenY=e.getY(); }
         });
 
-        new javax.swing.Timer(33, e -> {
-            animTick++;
-            drainParticleEvents();
-            updateParticles();
-            repaint();
-        }).start();
+        new javax.swing.Timer(33, e -> { animTick++; drainEvents(); updateParticles(); repaint(); }).start();
     }
 
-    public void setInputController(InputController ic) { this.inputController = ic; }
-    public void setMyPlayerId(String id)               { this.myPlayerId = id; }
+    // ── API ───────────────────────────────────────────────────────────────────
+    public void setInputController(InputController ic) { inputController = ic; }
+    public void setMyPlayerId(String id)               { myPlayerId = id; }
 
     public void setGameState(GameState next) {
-        if (next != null) {
-            detectEvents(gameState, next);
-            trackFacing(next);
-        }
-        prevState  = gameState;
-        gameState  = next;
+        if (next != null) { detectEvents(gameState, next); trackFacing(next); }
+        prevState = gameState;
+        gameState = next;
         updateCamera();
     }
 
     // ── Camera ────────────────────────────────────────────────────────────────
-
     private void updateCamera() {
-        GameState gs = gameState;
-        if (gs == null) return;
+        GameState gs = gameState; if (gs == null) return;
+        int vw = getWidth(), vh = getHeight(); if (vw <= 0 || vh <= 0) return;
         Player me = gs.getPlayer(myPlayerId);
         if (me != null) {
-            tgtX = me.getXf() + Player.SIZE / 2f - VW / 2f;
-            tgtY = me.getYf() + Player.SIZE / 2f - VH / 2f;
+            tgtX = me.getXf() + Player.SIZE / 2f - vw / 2f;
+            tgtY = me.getYf() + Player.SIZE / 2f - vh / 2f;
         }
-        tgtX = Math.max(0, Math.min(tgtX, CW - VW));
-        tgtY = Math.max(0, Math.min(tgtY, CH - VH));
-        camX += (tgtX - camX) * 0.12f;
-        camY += (tgtY - camY) * 0.12f;
+        tgtX = Math.max(0, Math.min(tgtX, CW - vw));
+        tgtY = Math.max(0, Math.min(tgtY, CH - vh));
+        camX += (tgtX - camX) * 0.10f;
+        camY += (tgtY - camY) * 0.10f;
         if (inputController != null) inputController.updateCameraOffset(camX, camY);
     }
 
-    // ── Event detection ───────────────────────────────────────────────────────
-
+    // ── Event Detection ───────────────────────────────────────────────────────
     private void detectEvents(GameState prev, GameState next) {
         if (prev == null) return;
         for (Player np : next.getPlayers().values()) {
-            Player pp = prev.getPlayer(np.getId());
-            if (pp == null) continue;
-            float cx = np.getXf() + Player.SIZE / 2f;
-            float cy = np.getYf() + Player.SIZE / 2f;
+            Player pp = prev.getPlayer(np.getId()); if (pp == null) continue;
+            float cx = np.getXf() + Player.SIZE/2f, cy = np.getYf() + Player.SIZE/2f;
             if (np.getHealth() < pp.getHealth()) {
-                particleEvents.offer(new float[]{cx, cy, 0});
+                particleEvts.offer(new float[]{cx, cy, 0});
+                bloodDecals.add(new float[]{cx + (float)(Math.random()*12-6), cy + (float)(Math.random()*12-6),
+                    6+rndF()*10, rndF()*6.28f, 0.7f + rndF()*0.3f});
+                if (bloodDecals.size() > 120) bloodDecals.remove(0);
                 if (np.getId().equals(myPlayerId))
-                    shakeRequest.set(Math.min(18, (pp.getHealth() - np.getHealth()) * 2 + 4));
+                    shakeReq.set(Math.min(18, (pp.getHealth()-np.getHealth())*2+4));
             }
             if (!pp.isInfected() && np.isInfected()) {
-                particleEvents.offer(new float[]{cx, cy, 3});
-                if (np.getId().equals(myPlayerId)) shakeRequest.set(22);
+                particleEvts.offer(new float[]{cx, cy, 3});
+                if (np.getId().equals(myPlayerId)) shakeReq.set(24);
             }
         }
         for (Pickup nPk : new ArrayList<>(next.getPickups())) {
             if (!nPk.isCollected()) continue;
             for (Pickup pPk : new ArrayList<>(prev.getPickups())) {
                 if (!pPk.getId().equals(nPk.getId()) || pPk.isCollected()) continue;
-                float cx = nPk.getX() + Pickup.SIZE / 2f;
-                float cy = nPk.getY() + Pickup.SIZE / 2f;
-                particleEvents.offer(new float[]{cx, cy, nPk.getType() == Pickup.Type.MEDKIT ? 1 : 2});
+                float cx = nPk.getX() + Pickup.SIZE/2f, cy = nPk.getY() + Pickup.SIZE/2f;
+                particleEvts.offer(new float[]{cx, cy, nPk.getType()==Pickup.Type.MEDKIT ? 1 : 2});
                 break;
             }
         }
     }
 
-    private void drainParticleEvents() {
-        float[] ev;
-        Random rng = new Random();
-        while ((ev = particleEvents.poll()) != null) {
-            switch ((int)ev[2]) {
-                case 0 -> spawnBlood(ev[0], ev[1], rng);
-                case 1 -> spawnSparkles(ev[0], ev[1], new Color(220,40,40), rng);
-                case 2 -> spawnSparkles(ev[0], ev[1], new Color(220,185,20), rng);
-                case 3 -> spawnInfection(ev[0], ev[1], rng);
-            }
+    private void drainEvents() {
+        float[] ev; Random r2 = new Random();
+        while ((ev = particleEvts.poll()) != null) switch ((int)ev[2]) {
+            case 0 -> spawnBlood (ev[0], ev[1], r2);
+            case 1 -> spawnSpark (ev[0], ev[1], new Color(220,40,40),  r2);
+            case 2 -> spawnSpark (ev[0], ev[1], new Color(200,180,20), r2);
+            case 3 -> spawnInfect(ev[0], ev[1], r2);
         }
     }
 
-    private void spawnBlood(float cx, float cy, Random rng) {
-        for (int i = 0; i < 10; i++) {
-            float a = rng.nextFloat() * 6.28f, spd = 1.4f + rng.nextFloat() * 2.8f;
-            particles.add(new float[]{cx, cy, (float)Math.cos(a)*spd, (float)Math.sin(a)*spd,
-                14+rng.nextInt(18), 30, 185, 18, 18, 3+rng.nextInt(4), 0});
-        }
-    }
-
-    private void spawnSparkles(float cx, float cy, Color col, Random rng) {
+    private void spawnBlood(float cx, float cy, Random r) {
         for (int i = 0; i < 12; i++) {
-            float a = rng.nextFloat() * 6.28f, spd = 1.8f + rng.nextFloat() * 3.2f;
-            particles.add(new float[]{cx, cy, (float)Math.cos(a)*spd, (float)Math.sin(a)*spd - 1.5f,
-                18+rng.nextInt(20), 40, col.getRed(), col.getGreen(), col.getBlue(), 4+rng.nextInt(5), 1});
+            float a = r.nextFloat()*6.28f, s = 1.5f+r.nextFloat()*3f;
+            particles.add(new float[]{cx,cy, (float)Math.cos(a)*s, (float)Math.sin(a)*s,
+                16+r.nextInt(20), 36, 185,18,18, 3+r.nextInt(4), 0});
         }
     }
-
-    private void spawnInfection(float cx, float cy, Random rng) {
-        for (int i = 0; i < 14; i++) {
-            float a = rng.nextFloat() * 6.28f, spd = 2.2f + rng.nextFloat() * 3.5f;
-            particles.add(new float[]{cx, cy, (float)Math.cos(a)*spd, (float)Math.sin(a)*spd - 1f,
-                22+rng.nextInt(25), 50, 70+rng.nextInt(60), 180+rng.nextInt(60), 35, 3+rng.nextInt(5), 1});
+    private void spawnSpark(float cx, float cy, Color col, Random r) {
+        for (int i = 0; i < 10; i++) {
+            float a = r.nextFloat()*6.28f, s = 1.8f+r.nextFloat()*3.5f;
+            particles.add(new float[]{cx,cy, (float)Math.cos(a)*s, (float)Math.sin(a)*s-1.5f,
+                18+r.nextInt(22), 40, col.getRed(),col.getGreen(),col.getBlue(), 4+r.nextInt(5), 1});
+        }
+    }
+    private void spawnInfect(float cx, float cy, Random r) {
+        for (int i = 0; i < 16; i++) {
+            float a = r.nextFloat()*6.28f, s = 2.5f+r.nextFloat()*4f;
+            particles.add(new float[]{cx,cy, (float)Math.cos(a)*s, (float)Math.sin(a)*s-1f,
+                24+r.nextInt(28), 52, 80+r.nextInt(60),190+r.nextInt(60),40, 3+r.nextInt(6), 1});
         }
     }
 
     private void updateParticles() {
-        particles.removeIf(p -> { p[0]+=p[2]; p[1]+=p[3]; p[3]+=0.06f; p[2]*=0.93f; p[4]--; return p[4]<=0; });
+        particles.removeIf(p -> { p[0]+=p[2]; p[1]+=p[3]; p[3]+=0.07f; p[2]*=0.92f; p[4]--; return p[4]<=0; });
     }
 
     private void trackFacing(GameState s) {
         for (Player p : s.getPlayers().values()) {
             float[] prev = lastPositions.get(p.getId());
-            if (prev != null) {
-                double dx = p.getXf()-prev[0], dy = p.getYf()-prev[1];
-                if (dx*dx+dy*dy > 0.5) facingAngles.put(p.getId(), Math.atan2(dy, dx));
+            float dx=0, dy=0;
+            if (prev!=null){ dx=p.getXf()-prev[0]; dy=p.getYf()-prev[1]; }
+            if (dx*dx+dy*dy>0.25) {
+                facingAngles.put(p.getId(), Math.atan2(dy,dx));
+                float wp = walkPhases.getOrDefault(p.getId(), 0f);
+                walkPhases.put(p.getId(), (wp + 0.28f) % ((float)Math.PI*2));
             }
             lastPositions.put(p.getId(), new float[]{p.getXf(), p.getYf()});
         }
     }
 
-    // ── Paint ─────────────────────────────────────────────────────────────────
-
+    // ── Paint dispatch ────────────────────────────────────────────────────────
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g.create();
+        int vw=getWidth(), vh=getHeight();
+        Graphics2D g2=(Graphics2D)g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_RENDERING,         RenderingHints.VALUE_RENDER_QUALITY);
 
-        // Screen shake
-        int req = shakeRequest.getAndSet(0);
-        if (req > 0) { shakeFrames = req; shakeIntensity = req > 15 ? 7 : 3; }
-        AffineTransform origXform = g2.getTransform();
-        if (shakeFrames > 0) {
-            g2.translate((int)((Math.random()*2-1)*shakeIntensity),
-                         (int)((Math.random()*2-1)*shakeIntensity));
-            shakeFrames--;
-        }
+        int req=shakeReq.getAndSet(0);
+        if (req>0){shakeFrames=req; shakeAmt=req>15?8:4;}
+        AffineTransform orig=g2.getTransform();
+        if (shakeFrames>0){ g2.translate((int)((Math.random()*2-1)*shakeAmt),(int)((Math.random()*2-1)*shakeAmt)); shakeFrames--; }
 
-        GameState gs = gameState;
-        if (gs == null) { renderConnecting(g2); g2.dispose(); return; }
-
+        GameState gs=gameState;
+        if (gs==null){ renderConnecting(g2,vw,vh); g2.dispose(); return; }
         switch (gs.getCurrentPhase()) {
-            case WAITING   -> renderLobby(g2, gs);
-            case PLAYING   -> renderGame(g2, gs);
-            case GAME_OVER -> { renderGame(g2, gs); renderGameOver(g2, gs); }
+            case WAITING   -> renderLobby(g2,gs,vw,vh);
+            case PLAYING   -> renderGame (g2,gs,vw,vh);
+            case GAME_OVER -> { renderGame(g2,gs,vw,vh); renderGameOver(g2,gs,vw,vh); }
         }
-
-        g2.setTransform(origXform);
+        g2.setTransform(orig);
         g2.dispose();
     }
 
-    // ── Connecting ────────────────────────────────────────────────────────────
-
-    private void renderConnecting(Graphics2D g) {
-        g.setColor(new Color(5,10,5));
-        g.fillRect(0,0,VW,VH);
-        float p = 0.5f + 0.5f*(float)Math.sin(animTick*0.09);
-        g.setColor(new Color(40,180,60,(int)(140+115*p)));
-        g.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        drawCentered(g, "Connecting to server...", VW/2, VH/2);
+    // ── Connecting screen ─────────────────────────────────────────────────────
+    private void renderConnecting(Graphics2D g, int vw, int vh) {
+        g.setColor(new Color(8,8,6)); g.fillRect(0,0,vw,vh);
+        float p=0.5f+0.5f*(float)Math.sin(animTick*0.08f);
+        g.setFont(new Font("Impact", Font.PLAIN, 18));
+        g.setColor(new Color(180,120,40,(int)(120+135*p)));
+        drawCentered(g,"Connecting to server...",vw/2,vh/2);
     }
 
-    // ── Lobby ─────────────────────────────────────────────────────────────────
+    // ── Lobby screen (LDOE-style) ─────────────────────────────────────────────
+    private void renderLobby(Graphics2D g, GameState gs, int vw, int vh) {
+        // Dark background with vignette
+        g.setColor(new Color(8,8,6)); g.fillRect(0,0,vw,vh);
+        g.setPaint(new RadialGradientPaint(vw*.5f,vh*.45f,vw*.65f,
+            new float[]{0f,1f}, new Color[]{new Color(30,22,12,0),new Color(0,0,0,210)}));
+        g.fillRect(0,0,vw,vh);
 
-    private void renderLobby(Graphics2D g, GameState gs) {
-        g.setColor(new Color(5, 9, 5));  g.fillRect(0, 0, VW, VH);
-        Paint sv = g.getPaint();
-        g.setPaint(new RadialGradientPaint(VW*.28f, VH*.38f, 320,
-            new float[]{0f,1f}, new Color[]{new Color(28,70,28,38), new Color(0,0,0,0)}));
-        g.fillRect(0,0,VW,VH);
-        g.setPaint(new RadialGradientPaint(VW*.72f, VH*.60f, 300,
-            new float[]{0f,1f}, new Color[]{new Color(90,22,22,30), new Color(0,0,0,0)}));
-        g.fillRect(0,0,VW,VH);
-        g.setPaint(sv);
-
-        // Biohazard glyph
-        float glph = 0.5f+0.5f*(float)Math.sin(animTick*0.065);
-        g.setFont(new Font("Segoe UI Symbol", Font.PLAIN, (int)(90+10*glph)));
-        g.setColor(new Color(165,20,20,(int)(75+65*glph)));
-        drawCentered(g, "☣", VW/2, 138);
-
-        // Title
-        g.setFont(new Font("Impact", Font.PLAIN, 65));
-        g.setColor(new Color(0,0,0,195)); drawCentered(g, "ZOMBIE SURVIVAL", VW/2+4, 212);
-        g.setColor(new Color(232,48,48)); drawCentered(g, "ZOMBIE SURVIVAL", VW/2, 208);
-
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        g.setColor(new Color(100,160,100));
-        drawCentered(g, "Real-time Multiplayer  •  Weapons  •  NPC Zombies  •  Big Map  •  Java TCP/IP", VW/2, 232);
-
-        g.setColor(new Color(50,85,50)); g.fillRect(VW/2-220,244,440,1);
-
-        // Player list
-        Collection<Player> players = gs.getPlayers().values();
-        int listY = 268;
-        g.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        g.setColor(new Color(95,168,95));
-        drawCentered(g, "CONNECTED PLAYERS  (" + players.size() + ")", VW/2, listY);
-        for (Player p : players) {
-            listY += 36;
-            boolean isMe = p.getId().equals(myPlayerId);
-            int ax = VW/2-120, ay = listY-18;
-            g.setColor(isMe ? new Color(55,185,70) : new Color(42,148,55));
-            g.fillOval(ax+2, ay+2, 24, 24);
-            g.setColor(Color.WHITE);
-            g.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            drawCentered(g, p.getName().substring(0,1).toUpperCase(), ax+14, ay+18);
-            g.setFont(new Font("Segoe UI", isMe ? Font.BOLD : Font.PLAIN, 13));
-            g.setColor(isMe ? Color.WHITE : new Color(172,210,172));
-            g.drawString(p.getName() + (isMe ? "  ★ YOU" : ""), VW/2-82, listY);
+        // Horizontal grime lines (LDOE texture feel)
+        for (int y=0;y<vh;y+=18){
+            g.setColor(new Color(255,255,255,(int)(3+3*Math.random())));
+            g.drawLine(0,y,vw,y);
         }
 
-        float wp = 0.5f+0.5f*(float)Math.sin(animTick*0.072);
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        g.setColor(new Color(130,195,130,(int)(80+175*wp)));
-        drawCentered(g, "●  Waiting for players...  (minimum 2 to start)", VW/2, VH-110);
+        int cx=vw/2;
+        // Skull / bio icon
+        float pulse=0.5f+0.5f*(float)Math.sin(animTick*0.05);
+        g.setFont(new Font("Segoe UI Symbol",Font.PLAIN,(int)(70+8*pulse)));
+        g.setColor(new Color(180,30,20,(int)(60+80*pulse)));
+        drawCentered(g,"☣",cx,vh/2-215);
 
-        int bx = VW/2-290, by = VH-96;
-        g.setColor(new Color(12,22,12)); g.fillRoundRect(bx,by,580,74,10,10);
-        g.setColor(new Color(38,62,38)); g.setStroke(new BasicStroke(1f));
-        g.drawRoundRect(bx,by,580,74,10,10);
-        g.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        g.setColor(new Color(115,185,115));
-        drawCentered(g, "CONTROLS", VW/2, by+16);
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        g.setColor(new Color(148,185,148));
-        drawCentered(g, "Move: WASD/Arrows  •  SHIFT: Sprint  •  LMB: Shoot  •  F: Melee  •  Q: Lunge (Z)  •  E: Howl (Z)", VW/2, by+34);
-        drawCentered(g, "1-5: Switch Weapon  •  ❤ Medkit  •  🦺 Vest  •  ⛑ Helmet  •  👟 Boots  •  🔑 Key +50pts", VW/2, by+52);
-        drawCentered(g, "🧟 NPC Zombies roam the map — kill them for loot and score!", VW/2, by+70);
+        // Game title – LDOE military stencil feel
+        g.setFont(new Font("Impact",Font.PLAIN,88));
+        g.setColor(new Color(0,0,0,180)); drawCentered(g,"ZOMBIE",cx+4,vh/2-132+4);
+        g.setPaint(new GradientPaint(cx-250,vh/2-200,new Color(200,140,30),cx+250,vh/2-130,new Color(170,80,20)));
+        drawCentered(g,"ZOMBIE",cx,vh/2-132);
+
+        g.setFont(new Font("Impact",Font.PLAIN,42));
+        g.setColor(new Color(180,180,180));
+        drawCentered(g,"SURVIVAL",cx,vh/2-85);
+
+        g.setFont(new Font("Segoe UI",Font.PLAIN,12));
+        g.setColor(new Color(100,90,60));
+        drawCentered(g,"Multiplayer  •  Weapons  •  NPC Zombies  •  80×60 Tile Map  •  TCP/IP Networking",cx,vh/2-62);
+
+        // Horizontal divider
+        g.setPaint(new GradientPaint(cx-200,0,new Color(0,0,0,0),cx,0,new Color(180,140,40,200)));
+        g.fillRect(cx-200,vh/2-50,200,1);
+        g.setPaint(new GradientPaint(cx,0,new Color(180,140,40,200),cx+200,0,new Color(0,0,0,0)));
+        g.fillRect(cx,vh/2-50,200,1);
+
+        // Player slots
+        java.util.Collection<Player> players=gs.getPlayers().values();
+        int listY=vh/2-30;
+        g.setFont(new Font("Segoe UI",Font.BOLD,12));
+        g.setColor(new Color(140,120,60));
+        drawCentered(g,"CONNECTED  (" +players.size()+")",cx,listY);
+        for (Player p:players){
+            listY+=42;
+            boolean me=p.getId().equals(myPlayerId);
+            // Avatar circle
+            int ax=cx-130,ay=listY-20;
+            g.setPaint(new RadialGradientPaint(ax+14,ay+12,14,
+                new float[]{0f,1f},
+                new Color[]{me?new Color(200,160,40):new Color(80,80,80),new Color(20,15,8)}));
+            g.fillOval(ax,ay,28,28);
+            g.setColor(me?new Color(220,180,60):new Color(100,100,80));
+            g.setStroke(new BasicStroke(1.5f)); g.drawOval(ax,ay,28,28); g.setStroke(new BasicStroke(1f));
+            g.setFont(new Font("Segoe UI",Font.BOLD,13)); g.setColor(Color.WHITE);
+            drawCentered(g,p.getName().substring(0,1).toUpperCase(),ax+14,ay+19);
+            g.setFont(new Font("Segoe UI",me?Font.BOLD:Font.PLAIN,13));
+            g.setColor(me?new Color(220,190,80):new Color(160,150,110));
+            g.drawString(p.getName()+(me?"   ▶ YOU":""),cx-90,listY);
+        }
+
+        // Waiting pulse
+        float wp=0.5f+0.5f*(float)Math.sin(animTick*0.07);
+        g.setFont(new Font("Segoe UI",Font.PLAIN,13));
+        g.setColor(new Color(160,120,40,(int)(80+175*wp)));
+        drawCentered(g,"⚠  Waiting — game starts when 2+ players connect",cx,vh-128);
+
+        // Controls bar
+        int bx=cx-330,by=vh-112;
+        g.setColor(new Color(14,12,8,230)); g.fillRoundRect(bx,by,660,90,10,10);
+        g.setColor(new Color(80,60,30,200)); g.setStroke(new BasicStroke(1.2f));
+        g.drawRoundRect(bx,by,660,90,10,10); g.setStroke(new BasicStroke(1f));
+        g.setFont(new Font("Segoe UI",Font.BOLD,11)); g.setColor(new Color(160,130,60));
+        drawCentered(g,"CONTROLS  •  F11 = Full Screen  •  ESC = Exit Full Screen",cx,by+16);
+        g.setFont(new Font("Segoe UI",Font.PLAIN,11)); g.setColor(new Color(130,115,80));
+        drawCentered(g,"Move: WASD  •  SHIFT: Sprint  •  Left Click: Shoot (toward cursor)  •  F: Melee",cx,by+36);
+        drawCentered(g,"1-5: Switch Weapon  •  Q: Zombie Lunge  •  E: Zombie Howl  •  Pick up items by walking over them",cx,by+54);
+        drawCentered(g,"Survivors: survive 3 minutes  •  Zombies: infect everyone  •  NPC Zombies: 15 on the map",cx,by+72);
     }
 
     // ── Game world ────────────────────────────────────────────────────────────
+    private void renderGame(Graphics2D g, GameState gs, int vw, int vh) {
+        int cx=(int)camX, cy=(int)camY;
+        g.translate(-cx,-cy);
 
-    private void renderGame(Graphics2D g, GameState gs) {
-        int cx = (int)camX, cy = (int)camY;
+        int sc=Math.max(0,cx/TS-1), ec=Math.min(MW-1,(cx+vw)/TS+2);
+        int sr=Math.max(0,cy/TS-1), er=Math.min(MH-1,(cy+vh)/TS+2);
 
-        // Apply camera transform — all world-space drawing uses this
-        g.translate(-cx, -cy);
+        drawTiles       (g,sc,ec,sr,er);
+        drawGroundDecals(g,cx,cy,vw,vh);
+        drawBuildingFloors(g,sc,ec,sr,er);
+        drawWallFaces   (g,sc,ec,sr,er);
+        drawProps       (g,cx,cy,vw,vh);
+        drawPickups     (g,gs);
+        drawNpcs        (g,gs);
+        drawPlayers     (g,gs);
+        drawBullets     (g,gs);
+        drawParticles   (g);
+        drawDynLighting (g,gs,cx,cy,vw,vh);
+        drawKillFeed    (g,gs,cx,cy,vw);
 
-        // Clip to what's visible + 1-tile margin
-        int startCol = Math.max(0, cx/TS - 1),   endCol = Math.min(MW-1, (cx+VW)/TS + 1);
-        int startRow = Math.max(0, cy/TS - 1),   endRow = Math.min(MH-1, (cy+VH)/TS + 1);
+        g.translate(cx,cy);
 
-        drawTiles     (g, startCol, endCol, startRow, endRow);
-        drawWallFaces (g, startCol, endCol, startRow, endRow);
-        drawDecorations(g, startCol, endCol, startRow, endRow);
-        drawPickups   (g, gs);
-        drawNpcs      (g, gs);
-        drawPlayers   (g, gs);
-        drawBullets   (g, gs);
-        drawParticles (g);
-        drawDynLighting(g, gs);
-        drawKillFeed  (g, gs);
-
-        // Restore to screen space
-        g.translate(cx, cy);
-
-        drawMinimap   (g, gs);
-        drawCrosshair (g, gs);
-        drawZombieVig (g, gs);
+        drawMinimap  (g,gs,vw,vh);
+        drawCrosshair(g,gs,vw,vh);
+        drawVignette (g,gs,vw,vh);
     }
 
     // ── 1. Tiles ──────────────────────────────────────────────────────────────
-
     private void drawTiles(Graphics2D g, int sc, int ec, int sr, int er) {
-        for (int row = sr; row <= er; row++) {
-            for (int col = sc; col <= ec; col++) {
-                int tile = GameState.MAP[row][col];
-                int px = col*TS, py = row*TS;
-                switch (tile) {
-                    case 0 -> g.drawImage((row+col)%2==0 ? tileGrassA : tileGrassB, px, py, null);
-                    case 1 -> g.drawImage(tileWall, px, py, null);
-                    case 2 -> {
-                        g.drawImage(tileSafe, px, py, null);
-                        float gl = 0.3f+0.22f*(float)Math.sin(animTick*0.055+col*0.35+row*0.35);
-                        g.setColor(new Color(28,198,105,(int)(68*gl)));
-                        g.fillRect(px, py, TS, TS);
-                    }
+        for (int row=sr;row<=er;row++) for (int col=sc;col<=ec;col++) {
+            int tile=GameState.MAP[row][col];
+            int px=col*TS, py=row*TS;
+            switch (tile) {
+                case 0 -> g.drawImage((row+col)%2==0?tileGrassA:tileGrassB, px, py, null);
+                case 1 -> g.drawImage(tileWall, px, py, null);
+                case 2 -> {
+                    g.drawImage(tileSafe, px, py, null);
+                    float gl=0.3f+0.22f*(float)Math.sin(animTick*0.055+col*0.3+row*0.3);
+                    g.setColor(new Color(28,180,80,(int)(50*gl)));
+                    g.fillRect(px,py,TS,TS);
                 }
             }
         }
     }
 
-    // ── 2. Wall faces (pseudo-3D) ─────────────────────────────────────────────
+    // ── 2. Blood decals (world-space persistent) ──────────────────────────────
+    private void drawGroundDecals(Graphics2D g, int cx, int cy, int vw, int vh) {
+        for (float[] d : bloodDecals) {
+            float wx=d[0],wy=d[1],r=d[2]; float a=d[4];
+            if (wx<cx-r||wx>cx+vw+r||wy<cy-r||wy>cy+vh+r) continue;
+            g.setColor(new Color(C_BLOOD_DK.getRed(),C_BLOOD_DK.getGreen(),C_BLOOD_DK.getBlue(),(int)(a*180)));
+            AffineTransform old=g.getTransform();
+            g.translate(wx,wy); g.rotate(d[3]);
+            g.fillOval(-(int)r,-(int)(r*0.6f),(int)(r*2),(int)(r*1.2f));
+            g.setTransform(old);
+        }
+    }
 
+    // ── 3. Building interior floors ───────────────────────────────────────────
+    private void drawBuildingFloors(Graphics2D g, int sc, int ec, int sr, int er) {
+        // Draw wood floor inside wall-enclosed areas (tiles surrounded by walls)
+        for (int row=sr+1;row<=er-1;row++) for (int col=sc+1;col<=ec-1;col++) {
+            if (GameState.MAP[row][col]==1) {
+                // Check if surrounded by walls — if so, render interior floor instead
+                boolean top=GameState.MAP[row-1][col]==1;
+                boolean bot=GameState.MAP[row+1][col]==1;
+                boolean lft=GameState.MAP[row][col-1]==1;
+                boolean rgt=GameState.MAP[row][col+1]==1;
+                if (!top&&!bot&&!lft&&!rgt) {
+                    g.drawImage(tileWoodFloor,col*TS,row*TS,null);
+                }
+            }
+        }
+    }
+
+    // ── 4. Wall faces (pseudo-3D shadow) ─────────────────────────────────────
     private void drawWallFaces(Graphics2D g, int sc, int ec, int sr, int er) {
-        for (int row = sr; row <= er; row++) {
-            for (int col = sc; col <= ec; col++) {
-                if (GameState.MAP[row][col] != 1) continue;
-                int px = col*TS, py = row*TS;
-                if (row+1 < MH && GameState.MAP[row+1][col] != 1) {
-                    g.setColor(new Color(30,33,44)); g.fillRect(px, py+TS, TS, 11);
-                    Paint sv = g.getPaint();
-                    g.setPaint(new GradientPaint(0,py+TS+11,new Color(0,0,0,65),0,py+TS+17,new Color(0,0,0,0)));
-                    g.fillRect(px,py+TS+11,TS,6); g.setPaint(sv);
-                    g.setColor(new Color(55,58,72)); g.drawLine(px,py+TS,px+TS-1,py+TS);
-                }
-                if (col+1 < MW && GameState.MAP[row][col+1] != 1) {
-                    g.setColor(new Color(50,53,65)); g.fillRect(px+TS, py+3, 7, TS-3);
-                    Paint sv = g.getPaint();
-                    g.setPaint(new GradientPaint(px+TS+7,0,new Color(0,0,0,52),px+TS+13,0,new Color(0,0,0,0)));
-                    g.fillRect(px+TS+7,py+3,6,TS-3); g.setPaint(sv);
-                }
+        for (int row=sr;row<=er;row++) for (int col=sc;col<=ec;col++) {
+            if (GameState.MAP[row][col]!=1) continue;
+            int px=col*TS, py=row*TS;
+            if (row+1<MH && GameState.MAP[row+1][col]!=1) {
+                // Bottom face of wall (visible in top-down)
+                g.setPaint(new GradientPaint(0,py+TS,new Color(22,20,18),0,py+TS+13,new Color(12,10,8)));
+                g.fillRect(px,py+TS,TS,13);
+                g.setColor(new Color(255,255,255,8)); g.drawLine(px,py+TS,px+TS-1,py+TS);
+                // Shadow
+                Paint sv=g.getPaint();
+                g.setPaint(new GradientPaint(0,py+TS+13,new Color(0,0,0,60),0,py+TS+20,new Color(0,0,0,0)));
+                g.fillRect(px,py+TS+13,TS,7); g.setPaint(sv);
+            }
+            if (col+1<MW && GameState.MAP[row][col+1]!=1) {
+                g.setPaint(new GradientPaint(px+TS,0,new Color(18,16,14),px+TS+6,0,new Color(0,0,0,0)));
+                g.fillRect(px+TS,py,6,TS);
             }
         }
     }
 
-    // ── 3. Decorations ────────────────────────────────────────────────────────
+    // ── 5. Environmental props ────────────────────────────────────────────────
+    private void buildProps() {
+        // Trees placed on grass tiles — low density so paths are visible
+        Random r = new Random(99887L);
+        for (int row=1;row<MH-1;row++) for (int col=1;col<MW-1;col++) {
+            if (GameState.MAP[row][col]!=0) continue;
+            boolean inForest=(row>=31&&row<=58&&col>=1&&col<=38);
+            boolean inUrban =(row>=1 &&row<=28&&col>=1&&col<=38);
+            // Reduced density so routes/paths are clearly visible
+            float chance = inForest ? 0.04f : inUrban ? 0.008f : 0.012f;
+            if (r.nextFloat()<chance) props.add(new int[]{col*TS+TS/2, row*TS+TS/2, 0, r.nextInt(1000)});
+        }
+        // Rocks & debris
+        for (int i=0;i<250;i++) {
+            int col=r.nextInt(MW-2)+1, row=r.nextInt(MH-2)+1;
+            if (GameState.MAP[row][col]==0) props.add(new int[]{col*TS+r.nextInt(TS), row*TS+r.nextInt(TS), 1, r.nextInt(1000)});
+        }
+        // Crashed cars
+        for (int i=0;i<18;i++){
+            int col=r.nextInt(MW-4)+2, row=r.nextInt(MH-4)+2;
+            if (GameState.MAP[row][col]==0) props.add(new int[]{col*TS, row*TS, 2, r.nextInt(1000)});
+        }
+    }
 
-    private void drawDecorations(Graphics2D g, int sc, int ec, int sr, int er) {
-        // Draw trees on grass tiles throughout the map (pattern-based)
-        for (int row = sr; row <= er; row++) {
-            for (int col = sc; col <= ec; col++) {
-                if (GameState.MAP[row][col] != 0) continue;
-                // Simple deterministic decoration placement
-                int hash = (row * 73856093) ^ (col * 19349663);
-                if (Math.abs(hash) % 40 == 0) drawTree(g, col*TS, row*TS);
-                else if (Math.abs(hash) % 55 == 1) drawCrate(g, col*TS+4, row*TS+4);
+    private void drawProps(Graphics2D g, int cx, int cy, int vw, int vh) {
+        for (int[] prop : props) {
+            int wx=prop[0],wy=prop[1],type=prop[2];
+            if (wx<cx-80||wx>cx+vw+80||wy<cy-80||wy>cy+vh+80) continue;
+            switch(type) {
+                case 0 -> drawTree (g, wx, wy, prop[3]);
+                case 1 -> drawRock (g, wx, wy, prop[3]);
+                case 2 -> drawCar  (g, wx, wy, prop[3]);
             }
         }
     }
 
-    private void drawTree(Graphics2D g, int px, int py) {
-        g.setColor(new Color(0,0,0,55)); g.fillOval(px+2,py+14,28,14);
-        g.setColor(new Color(82,54,24)); g.fillOval(px+11,py+10,10,12);
-        g.setColor(new Color(18,68,18)); g.fillOval(px,py,32,32);
-        g.setColor(new Color(26,95,26)); g.fillOval(px+4,py+4,24,24);
-        g.setColor(new Color(40,125,40)); g.fillOval(px+9,py+7,14,14);
+    private void drawTree(Graphics2D g, int wx, int wy, int seed) {
+        Random r=new Random(seed);
+        int tr = 9 + r.nextInt(5);   // smaller: 9-13px radius (was 14-22)
+        // Shadow
+        g.setColor(new Color(0,0,0,45));
+        g.fillOval(wx-tr+3, wy-tr/2+5, tr*2, (int)(tr*1.1));
+        // Trunk
+        g.setColor(new Color(45,32,18));
+        g.fillOval(wx-4,wy-4,8,8);
+        // Canopy — dark green LDOE style
+        g.setPaint(new RadialGradientPaint(wx,wy-1,tr,new float[]{0f,0.55f,1f},
+            new Color[]{new Color(50,78,28),new Color(38,60,20),new Color(24,42,12)}));
+        g.fillOval(wx-tr,wy-tr-1,tr*2,tr*2);
+        // Highlight
+        g.setColor(new Color(70,100,36,70));
+        g.fillOval(wx-tr/2,wy-tr,tr,tr/2);
     }
 
-    private void drawCrate(Graphics2D g, int px, int py) {
-        g.setColor(new Color(0,0,0,50)); g.fillRect(px+3,py+22,24,5);
-        g.setColor(new Color(108,74,34)); g.fillRect(px,py,24,22);
-        g.setColor(new Color(78,52,22)); g.drawRect(px,py,24,22);
-        g.drawLine(px,py+11,px+24,py+11); g.drawLine(px+12,py,px+12,py+22);
-        g.setColor(new Color(138,98,48)); g.drawLine(px+1,py+1,px+22,py+1);
+    private void drawRock(Graphics2D g, int wx, int wy, int seed) {
+        Random r=new Random(seed); int rs=4+r.nextInt(5);
+        g.setColor(new Color(0,0,0,40)); g.fillOval(wx-rs+2,wy-rs+3,rs*2,rs);
+        g.setColor(new Color(62,62,66)); g.fillOval(wx-rs,wy-rs,rs*2,(int)(rs*1.5));
+        g.setColor(new Color(80,80,84)); g.fillOval(wx-rs,wy-rs,rs,rs/2);
     }
 
-    // ── 4. Pickups ────────────────────────────────────────────────────────────
+    private void drawCar(Graphics2D g, int wx, int wy, int seed) {
+        Random r2=new Random(seed);
+        double ang=(r2.nextInt(4))*Math.PI/2;
+        AffineTransform old=g.getTransform();
+        g.translate(wx+16,wy+12); g.rotate(ang);
+        // Shadow
+        g.setColor(new Color(0,0,0,70)); g.fillRoundRect(-18,-12,40,28,6,6);
+        // Body
+        Color body=new Color[]{new Color(65,25,18),new Color(30,45,30),new Color(35,30,50)}[r2.nextInt(3)];
+        g.setColor(body); g.fillRoundRect(-16,-10,36,24,5,5);
+        // Windshield
+        g.setColor(new Color(80,90,100,140)); g.fillRect(-6,-8,16,5);
+        // Rust
+        g.setColor(new Color(120,50,20,80)); g.fillRect(-14,-8,8,3);
+        // Wheels
+        g.setColor(new Color(20,20,20));
+        g.fillRect(-18,-10,5,7); g.fillRect(-18,7,5,7);
+        g.fillRect(14,-10,5,7);  g.fillRect(14,7,5,7);
+        g.setTransform(old);
+    }
 
+    // ── 6. Pickups ────────────────────────────────────────────────────────────
     private void drawPickups(Graphics2D g, GameState gs) {
         for (Pickup pk : new ArrayList<>(gs.getPickups())) {
             if (pk.isCollected()) continue;
-            int bob = (int)(3.5*Math.sin(animTick*0.09+(pk.getX()+pk.getY())*0.018));
-            int px = pk.getX(), py = pk.getY()+bob, s = Pickup.SIZE;
-            float gl = 0.5f+0.5f*(float)Math.sin(animTick*0.10);
-            Paint sv = g.getPaint();
-            Color glowCol = pickupGlowColor(pk.getType());
-            g.setPaint(new RadialGradientPaint(px+s/2f, py+s/2f, s+10,
-                new float[]{0f,1f}, new Color[]{new Color(glowCol.getRed(),glowCol.getGreen(),glowCol.getBlue(),(int)(55*gl)), new Color(0,0,0,0)}));
-            g.fillOval(px-10, py-10, s+20, s+20);
-            g.setPaint(sv);
-            drawPickupIcon(g, px, py, s, pk.getType());
+            float px=pk.getX()+Pickup.SIZE/2f, py=pk.getY()+Pickup.SIZE/2f;
+            float bob=(float)Math.sin(animTick*0.1+px*0.01)*3f;
+            float glow=0.5f+0.5f*(float)Math.sin(animTick*0.12+py*0.01);
+            Color col=pickupColor(pk.getType());
+            // Glow ring
+            g.setColor(new Color(col.getRed(),col.getGreen(),col.getBlue(),(int)(40*glow)));
+            int gr=12; g.fillOval((int)(px-gr),(int)(py-gr+bob),gr*2,gr*2);
+            // Item box (dark background)
+            g.setColor(new Color(20,18,14,210)); g.fillRoundRect((int)(px-8),(int)(py-8+bob),16,16,4,4);
+            g.setColor(col); g.setStroke(new BasicStroke(1.2f));
+            g.drawRoundRect((int)(px-8),(int)(py-8+bob),16,16,4,4); g.setStroke(new BasicStroke(1f));
+            // Icon letter
+            g.setFont(new Font("Segoe UI",Font.BOLD,9));
+            String ic=pickupIcon(pk.getType());
+            g.setColor(col);
+            FontMetrics fm=g.getFontMetrics(); g.drawString(ic,(int)(px-fm.stringWidth(ic)/2f),(int)(py+3+bob));
         }
     }
 
-    private Color pickupGlowColor(Pickup.Type t) {
-        return switch (t) {
-            case MEDKIT, BANDAGE -> new Color(220,0,0);
-            case KEY             -> new Color(220,180,0);
-            case HELMET, VEST    -> new Color(80,140,255);
-            case BOOTS           -> new Color(100,230,100);
-            case PISTOL, PISTOL_AMMO -> new Color(180,200,255);
-            case SHOTGUN, SHOTGUN_AMMO -> new Color(255,195,100);
-            case RIFLE, RIFLE_AMMO -> new Color(100,255,130);
-            case BAT             -> new Color(200,150,80);
-            case GRENADE         -> new Color(255,120,0);
-            case MOLOTOV         -> new Color(255,80,0);
-            default              -> new Color(220,220,0);
+    private Color pickupColor(Pickup.Type t) {
+        return switch(t) {
+            case MEDKIT,BANDAGE       -> new Color(220,60,60);
+            case KEY                  -> new Color(220,190,30);
+            case ARMOR,VEST,HELMET,BOOTS -> new Color(80,140,220);
+            case SPEED_BOOST          -> new Color(220,180,30);
+            case PISTOL,SHOTGUN,RIFLE,BAT -> new Color(200,120,40);
+            default                   -> new Color(160,160,160);
+        };
+    }
+    private String pickupIcon(Pickup.Type t) {
+        return switch(t) {
+            case MEDKIT   -> "MK"; case BANDAGE -> "BD"; case KEY -> "K";
+            case ARMOR    -> "AR"; case VEST -> "VS";  case HELMET -> "HM"; case BOOTS -> "BT";
+            case SPEED_BOOST -> "SP";
+            case PISTOL   -> "PI"; case SHOTGUN -> "SH"; case RIFLE -> "RI"; case BAT -> "BA";
+            case PISTOL_AMMO -> "9m"; case RIFLE_AMMO -> "5.5"; case SHOTGUN_AMMO -> "12g";
+            default        -> "?";
         };
     }
 
-    private void drawPickupIcon(Graphics2D g, int px, int py, int s, Pickup.Type t) {
-        Color fill = pickupGlowColor(t);
-        g.setColor(fill.darker());
-        g.fill(new RoundRectangle2D.Float(px, py, s, s, 6, 6));
-        g.setColor(fill);
-        g.setStroke(new BasicStroke(1.3f));
-        g.draw(new RoundRectangle2D.Float(px, py, s, s, 6, 6));
-        g.setStroke(new BasicStroke(1f));
-        g.setColor(Color.WHITE);
-        g.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 12));
-        String icon = switch (t) {
-            case MEDKIT        -> "❤";
-            case BANDAGE       -> "+";
-            case KEY           -> "🔑";
-            case HELMET        -> "⛑";
-            case VEST          -> "🦺";
-            case BOOTS         -> "👟";
-            case ARMOR         -> "🛡";
-            case SPEED_BOOST   -> "⚡";
-            case PISTOL        -> "🔫";
-            case SHOTGUN       -> "S";
-            case RIFLE         -> "R";
-            case BAT           -> "🏏";
-            case PISTOL_AMMO   -> "•";
-            case RIFLE_AMMO    -> "R•";
-            case SHOTGUN_AMMO  -> "S•";
-            case GRENADE       -> "💣";
-            case MOLOTOV       -> "🔥";
-        };
-        FontMetrics fm = g.getFontMetrics();
-        g.drawString(icon, px + (s-fm.stringWidth(icon))/2, py + s - 4);
-    }
-
-    // ── 5. NPC Zombies ────────────────────────────────────────────────────────
-
+    // ── 7. NPC Zombies ────────────────────────────────────────────────────────
     private void drawNpcs(Graphics2D g, GameState gs) {
         for (NpcZombie npc : gs.getNpcZombies().values()) {
             if (!npc.isAlive()) continue;
-            float nx = npc.getX(), ny = npc.getY();
-            int cx = (int)nx + NpcZombie.SIZE/2;
-            int cy = (int)ny + NpcZombie.SIZE/2;
+            float wx=npc.getX(), wy=npc.getY(), s=NpcZombie.SIZE;
+            float cx=wx+s/2f, cy=wy+s/2f;
+            double angle=npc.getFacingAngle();
+            float stagger=(float)Math.sin(animTick*0.35+wx*0.01)*3f; // stumble
 
             // Shadow
-            g.setColor(new Color(0,0,0,80)); g.fillOval(cx-12, cy-6, 24, 14);
+            g.setColor(new Color(0,0,0,70));
+            g.fillOval((int)(cx-11),(int)(cy-5+4),22,10);
 
-            // Body (NPC zombie is darker/meaner looking)
-            g.setColor(new Color(50,70,30)); g.fillOval(cx-10,cy-10,20,20);
-            g.setColor(new Color(35,55,15)); g.setStroke(new BasicStroke(1.5f));
-            g.drawOval(cx-10,cy-10,20,20); g.setStroke(new BasicStroke(1f));
+            AffineTransform old=g.getTransform();
+            g.translate(cx,cy+stagger);
+            g.rotate(angle+Math.PI/2);
 
-            // Head
-            double ang = npc.getFacingAngle();
-            int hx = cx+(int)(7*Math.cos(ang)), hy = cy+(int)(7*Math.sin(ang));
-            g.setColor(new Color(100,125,55)); g.fillOval(hx-7,hy-7,14,14);
-            g.setColor(new Color(200,20,20)); g.fillOval(hx+1,hy-1,4,3); // red eye
+            // Legs (animated stagger)
+            float legOff=(float)Math.sin(animTick*0.35f+wx)*4f;
+            g.setColor(new Color(50,50,35));
+            g.fillOval(-4,(int)(3+legOff),7,9);
+            g.fillOval(-1,(int)(3-legOff),7,9);
 
-            // HP bar
-            g.setColor(new Color(15,15,15)); g.fillRect(cx-12,cy-20,24,4);
-            int hpW = (int)(24f * npc.getHealth() / NpcZombie.MAX_HEALTH);
-            g.setColor(new Color(200,40,40)); g.fillRect(cx-12,cy-20,Math.max(1,hpW),4);
+            // Body (torn clothes)
+            g.setPaint(new GradientPaint(0,-8,new Color(55,62,32),0,10,new Color(35,42,18)));
+            g.fillOval(-9,-8,18,18);
+            // Wound detail
+            g.setColor(new Color(120,15,15,150)); g.fillOval(-2,0,5,3);
 
-            // "NPC" label
-            g.setFont(new Font("Segoe UI", Font.BOLD, 8));
-            g.setColor(new Color(200,90,90));
-            g.drawString("NPC", cx-8, cy-22);
+            // Head (rotting skin)
+            g.setPaint(new GradientPaint(-3,-18,C_SKIN_Z.brighter(),3,-13,C_SKIN_Z));
+            g.fillOval(-7,-18,14,14);
+            // Eye sockets
+            g.setColor(new Color(30,8,8)); g.fillOval(-5,-15,4,4); g.fillOval(1,-15,4,4);
+            g.setColor(new Color(180,20,20,200)); g.fillOval(-4,-14,3,3); g.fillOval(2,-14,3,3);
+            // Mouth (open)
+            g.setColor(new Color(30,5,5)); g.fillRect(-4,-10,8,3);
+            g.setColor(new Color(180,20,20,120)); g.fillRect(-3,-10,6,2);
+
+            // HP indicator (only if damaged)
+            if (npc.getHealth() < 100) {
+                g.setColor(new Color(0,0,0,150)); g.fillRect(-9,-26,18,4);
+                g.setColor(new Color(220,40,40));
+                g.fillRect(-9,-26,(int)(18*npc.getHealth()/100f),4);
+            }
+
+            g.setTransform(old);
         }
     }
 
-    // ── 6. Players ────────────────────────────────────────────────────────────
-
+    // ── 8. Players (top-down LDOE-style) ─────────────────────────────────────
     private void drawPlayers(Graphics2D g, GameState gs) {
-        List<Player> all = new ArrayList<>(gs.getPlayers().values());
-        all.sort((a, b) -> Boolean.compare(a.isInfected(), b.isInfected()));
-        for (Player p : all) drawOnePlayer(g, p, gs);
-    }
+        for (Player p : gs.getPlayers().values()) {
+            float wx=p.getXf(), wy=p.getYf();
+            float cx=wx+Player.SIZE/2f, cy=wy+Player.SIZE/2f;
+            boolean isMe=p.getId().equals(myPlayerId);
+            boolean zombie=p.isInfected();
+            double angle=facingAngles.getOrDefault(p.getId(), 0.0);
 
-    private void drawOnePlayer(Graphics2D g, Player p, GameState gs) {
-        int cx = p.getX() + Player.SIZE/2;
-        int cy = p.getY() + Player.SIZE/2;
-        boolean zombie = p.isInfected();
-        boolean isMe   = p.getId().equals(myPlayerId);
-        boolean boosted = p.hasSpeedBoost();
+            // Aim direction for local player
+            if (isMe) {
+                float mwx=camX+mouseScreenX, mwy=camY+mouseScreenY;
+                angle=Math.atan2(mwy-cy, mwx-cx);
+            }
 
-        double angle = facingAngles.getOrDefault(p.getId(), -Math.PI/2.0);
-        float hDx = (float)(8.5*Math.cos(angle)), hDy = (float)(8.5*Math.sin(angle));
-        double perp = angle + Math.PI/2.0;
-        float aDx = (float)(9.5*Math.cos(perp)), aDy = (float)(9.5*Math.sin(perp));
+            float wp=walkPhases.getOrDefault(p.getId(),0f);
+            float legOff=(float)Math.sin(wp)*4.5f;
+            boolean moving=Math.abs(legOff)>0.5f;
 
-        if (boosted) {
-            float ba = 0.4f+0.4f*(float)Math.sin(animTick*0.15);
-            g.setColor(new Color(255,220,0,(int)(90*ba)));
-            g.setStroke(new BasicStroke(3f)); g.drawOval(cx-18,cy-18,36,36);
-            g.setStroke(new BasicStroke(1f));
-        }
-        if (!zombie && GameState.isSafeZoneAt(cx,cy)) {
-            float sg = 0.35f+0.45f*(float)Math.sin(animTick*0.09);
-            g.setColor(new Color(45,220,115,(int)(115*sg)));
-            g.setStroke(new BasicStroke(2.5f)); g.drawOval(cx-20,cy-20,40,40);
-            g.setStroke(new BasicStroke(1f));
-        }
-        if (isMe) {
-            float mg = 0.5f+0.5f*(float)Math.sin(animTick*0.11);
-            g.setColor(new Color(255,255,255,(int)(45+85*mg)));
-            g.setStroke(new BasicStroke(2f)); g.drawOval(cx-19,cy-19,38,38);
-            g.setStroke(new BasicStroke(1f));
-        }
-        if (p.isStunned()) {
-            g.setColor(new Color(255,220,0,120));
-            g.setStroke(new BasicStroke(2f)); g.drawOval(cx-22,cy-22,44,44);
-            g.setStroke(new BasicStroke(1f));
-        }
+            // Shadow
+            g.setColor(new Color(0,0,0,zombie?80:65));
+            g.fillOval((int)(cx-12),(int)(cy-5+5),24,10);
 
-        // Shadow
-        g.setColor(new Color(0,0,0,85)); g.fillOval(cx-14,cy-8,28,17);
+            AffineTransform old=g.getTransform();
+            g.translate(cx,cy);
+            g.rotate(angle+Math.PI/2);
 
-        // Legs
-        Color legCol = zombie ? new Color(48,62,30) : new Color(34,48,76);
-        g.setColor(legCol); g.fillOval((int)(cx-hDx)-5,(int)(cy-hDy)-4,11,10);
+            if (zombie) {
+                // ── Zombie player ──────────────────────────────────────────────
+                // Legs
+                g.setColor(new Color(40,55,30));
+                g.fillOval(-4,(int)(4+legOff),7,9); g.fillOval(-1,(int)(4-legOff),7,9);
+                // Body (rotten green)
+                g.setPaint(new GradientPaint(0,-9,new Color(60,72,35),0,10,new Color(38,50,22)));
+                g.fillOval(-10,-9,20,20);
+                // Wound marks
+                g.setColor(new Color(140,20,20,140)); g.fillOval(-3,1,5,3); g.fillOval(3,-3,4,3);
+                // Head
+                g.setPaint(new RadialGradientPaint(0,-15,8,new float[]{0f,1f},
+                    new Color[]{C_SKIN_Z.brighter(),C_SKIN_Z.darker()}));
+                g.fillOval(-8,-21,16,16);
+                // Zombie eyes glow
+                g.setColor(new Color(255,30,30,200)); g.fillOval(-5,-18,4,4); g.fillOval(1,-18,4,4);
+                g.setColor(new Color(255,120,0,180)); g.fillOval(-4,-17,3,3); g.fillOval(2,-17,3,3);
+                // Mouth
+                g.setColor(new Color(30,5,5)); g.fillRect(-4,-13,8,3);
+                // Arms outward
+                g.setColor(new Color(95,110,55));
+                g.fillOval(-15,-5,8,6); g.fillOval(8,-5,8,6);
+            } else {
+                // ── Survivor player ────────────────────────────────────────────
+                // Boots
+                g.setColor(new Color(35,28,20));
+                g.fillOval(-5,(int)(5+legOff),8,9); g.fillOval(-2,(int)(5-legOff),8,9);
+                // Pants (dark cargo)
+                g.setColor(new Color(50,50,40));
+                g.fillOval(-9,0,18,12);
+                // Jacket / shirt
+                Color shirt=isMe?new Color(55,80,120):new Color(45,65,35); // blue for me, green otherwise
+                g.setPaint(new GradientPaint(0,-9,shirt.brighter(),0,8,shirt.darker()));
+                g.fillOval(-10,-9,20,18);
+                // Head (skin)
+                g.setPaint(new RadialGradientPaint(0,-16,8,new float[]{0f,1f},
+                    new Color[]{C_SKIN.brighter(),C_SKIN}));
+                g.fillOval(-8,-22,16,16);
+                // Hair
+                g.setColor(new Color(50,30,15)); g.fillRect(-6,-22,12,5);
+                // Eyes
+                g.setColor(new Color(30,30,50)); g.fillOval(-4,-17,4,3); g.fillOval(1,-17,4,3);
 
-        // Body
-        Color bodyCol = zombie ? new Color(70,90,44) : new Color(44,68,112);
-        Color bodyBdr = zombie ? new Color(46,64,26) : new Color(24,46,86);
-        g.setColor(bodyCol); g.fillOval(cx-11,cy-11,22,22);
-        g.setColor(bodyBdr); g.setStroke(new BasicStroke(1.5f)); g.drawOval(cx-11,cy-11,22,22);
-        g.setStroke(new BasicStroke(1f));
-        if (!zombie) { g.setColor(new Color(28,44,74)); g.fillRect(cx-9,cy-2,18,3); }
+                // Weapon arm + weapon (points toward mouse/facing)
+                g.rotate(0); // arms always point toward aim angle, handled by parent rotation
+                drawWeapon(g, p.getCurrentWeapon(), p.currentAmmo());
+            }
 
-        // Arms (weapon visible for survivors)
-        Color armCol = zombie ? new Color(80,102,50) : new Color(52,80,125);
-        g.setColor(armCol);
-        g.fillOval((int)(cx+aDx)-5,(int)(cy+aDy)-5,10,10);
-        g.fillOval((int)(cx-aDx)-5,(int)(cy-aDy)-5,10,10);
-        // Weapon in hand
-        if (!zombie && p.getCurrentWeapon() != Weapon.FIST) {
-            drawWeaponInHand(g, cx, cy, angle, p.getCurrentWeapon());
-        }
+            g.setTransform(old);
 
-        // Head
-        int hx = (int)(cx+hDx), hy = (int)(cy+hDy);
-        Color skinCol = zombie ? new Color(126,154,76) : new Color(208,170,126);
-        Color skinBdr = zombie ? new Color(90,116,54)  : new Color(170,132,94);
-        g.setColor(skinCol); g.fillOval(hx-9,hy-9,18,18);
-        g.setColor(skinBdr); g.setStroke(new BasicStroke(1.5f)); g.drawOval(hx-9,hy-9,18,18);
-        g.setStroke(new BasicStroke(1f));
+            // Name tag
+            g.setFont(new Font("Segoe UI",Font.BOLD,10));
+            FontMetrics fm=g.getFontMetrics();
+            String tag=(isMe?"▶ ":"")+p.getName();
+            int tw=fm.stringWidth(tag);
+            g.setColor(new Color(0,0,0,140)); g.fillRoundRect((int)(cx-tw/2-3),(int)(wy-20),tw+6,12,4,4);
+            g.setColor(isMe?new Color(220,190,60):zombie?new Color(100,200,80):new Color(180,190,220));
+            g.drawString(tag,(int)(cx-tw/2f),(int)(wy-11));
 
-        // Eyes
-        float ep=(float)(3.8*Math.cos(perp)), ep2=(float)(3.8*Math.sin(perp));
-        float ef=(float)(2.5*Math.cos(angle)), ef2=(float)(2.5*Math.sin(angle));
-        g.setColor(new Color(240,242,248));
-        g.fillOval((int)(hx+ep+ef)-3,(int)(hy+ep2+ef2)-3,6,6);
-        g.fillOval((int)(hx-ep+ef)-3,(int)(hy-ep2+ef2)-3,6,6);
-        g.setColor(zombie ? new Color(215,25,25) : new Color(16,16,60));
-        g.fillOval((int)(hx+ep+ef)-1,(int)(hy+ep2+ef2)-1,3,3);
-        g.fillOval((int)(hx-ep+ef)-1,(int)(hy-ep2+ef2)-1,3,3);
+            // HP bar above player
+            int bw=28;
+            g.setColor(new Color(20,10,10,180)); g.fillRect((int)(cx-bw/2),(int)(wy-32),bw,4);
+            Color hpCol=p.getHealth()>60?new Color(40,200,60):p.getHealth()>30?new Color(220,170,20):new Color(220,40,40);
+            g.setColor(hpCol); g.fillRect((int)(cx-bw/2),(int)(wy-32),(int)(bw*p.getHealth()/100f),4);
 
-        // Helmet / wound
-        if (!zombie) {
-            Color hCol = p.hasHelmet() ? new Color(65,135,200) : (p.hasVest() ? new Color(80,120,180) : new Color(46,68,42));
-            g.setColor(hCol);   g.fillArc(hx-10,hy-11,20,14,0,180);
-            g.setColor(hCol.darker()); g.drawArc(hx-10,hy-11,20,14,0,180);
-        } else {
-            g.setColor(new Color(175,16,16,195));
-            g.fillOval(hx+(int)ef,hy+(int)ef2,6,3); g.fillOval(hx+(int)ef-2,hy+(int)ef2+4,3,2);
-        }
+            // "ME" highlight circle
+            if (isMe) {
+                g.setColor(new Color(220,190,60,50));
+                g.setStroke(new BasicStroke(1.5f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND,1f,new float[]{4,4},0));
+                g.drawOval((int)(cx-16),(int)(cy-16),32,32);
+                g.setStroke(new BasicStroke(1f));
+            }
 
-        // Name tag
-        g.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        FontMetrics fm = g.getFontMetrics();
-        String label = p.getName() + (zombie ? " ☣" : "");
-        int tw = fm.stringWidth(label);
-        int tagX = cx-tw/2, tagY = cy-32;
-        g.setColor(new Color(0,0,0,175)); g.fillRoundRect(tagX-4,tagY-12,tw+8,14,4,4);
-        g.setColor(zombie ? new Color(100,238,100) : new Color(175,215,255));
-        g.drawString(label, tagX, tagY);
-
-        // HP bar (above name)
-        int hbW=Player.SIZE+14, hbX=cx-hbW/2, hbY=cy-44;
-        g.setColor(new Color(15,18,28,195)); g.fillRoundRect(hbX,hbY,hbW,5,2,2);
-        int hp = p.getHealth();
-        if (hp>0) {
-            Color hpc = hp>60?new Color(36,190,60):hp>30?new Color(220,150,16):new Color(210,40,40);
-            g.setColor(hpc); g.fillRoundRect(hbX,hbY,Math.max(1,hbW*hp/100),5,2,2);
-        }
-        if (p.getArmor()>0 || p.hasVest()) {
-            int abY=hbY+7; g.setColor(new Color(12,15,28,190)); g.fillRoundRect(hbX,abY,hbW,3,1,1);
-            int arVal = p.hasVest() ? 60 : p.getArmor();
-            int arMax = p.hasVest() ? 60 : 60;
-            g.setColor(new Color(65,135,210)); g.fillRoundRect(hbX,abY,Math.max(1,hbW*arVal/arMax),3,1,1);
+            // Stun stars
+            if (p.isStunned()) {
+                g.setFont(new Font("Segoe UI Symbol",Font.PLAIN,10));
+                g.setColor(new Color(255,230,50));
+                for (int s=0;s<3;s++) {
+                    double sa=animTick*0.15+s*2.09;
+                    g.drawString("★",(int)(cx-5+Math.cos(sa)*10),(int)(wy-24+Math.sin(sa)*4));
+                }
+            }
         }
     }
 
-    private void drawWeaponInHand(Graphics2D g, int cx, int cy, double angle, Weapon w) {
-        double perp = angle + Math.PI/2.0;
-        int ax = cx + (int)(9.5*Math.cos(perp)) + (int)(5*Math.cos(angle));
-        int ay = cy + (int)(9.5*Math.sin(perp)) + (int)(5*Math.sin(angle));
-
-        AffineTransform old = g.getTransform();
-        g.translate(ax, ay);
-        g.rotate(angle);
-        Color wc = switch (w) {
-            case PISTOL  -> new Color(180,200,255);
-            case SHOTGUN -> new Color(255,195,100);
-            case RIFLE   -> new Color(100,230,130);
-            case BAT     -> new Color(160,110,60);
-            default      -> Color.GRAY;
-        };
-        g.setColor(wc);
-        if (w == Weapon.BAT) {
-            g.setStroke(new BasicStroke(3f)); g.drawLine(0, 0, 16, 0); g.setStroke(new BasicStroke(1f));
-        } else if (w.isMelee()) {
-            g.setStroke(new BasicStroke(3f)); g.drawLine(0, 0, 14, 0); g.setStroke(new BasicStroke(1f));
-        } else {
-            g.fillRoundRect(0,-2,w==Weapon.RIFLE?18:12,5,2,2);
-            g.setColor(wc.darker()); g.fillRect(w==Weapon.RIFLE?14:10,-4,3,3);
+    private void drawWeapon(Graphics2D g, Weapon w, int ammo) {
+        int col=(ammo==0&&ammo>=0)?0xCC2020:0xCCCCAA;
+        g.setColor(new Color(col));
+        switch(w) {
+            case FIST -> {
+                g.setColor(C_SKIN); g.fillOval(6,-3,8,8);
+            }
+            case PISTOL -> {
+                g.setColor(new Color(55,55,60)); g.fillRoundRect(8,-3,14,6,2,2);
+                g.setColor(new Color(40,40,45)); g.fillRect(8,-1,18,4);
+                g.setColor(new Color(80,80,85)); g.fillRect(22,-3,4,2);
+            }
+            case SHOTGUN -> {
+                g.setColor(new Color(50,38,25)); g.fillRoundRect(4,-3,24,8,3,3);
+                g.setColor(new Color(65,50,30)); g.fillRect(8,-4,16,4);
+                g.setColor(new Color(45,40,35)); g.fillRect(24,-2,5,3);
+            }
+            case RIFLE -> {
+                g.setColor(new Color(40,48,40)); g.fillRoundRect(4,-2,30,6,2,2);
+                g.setColor(new Color(55,65,55)); g.fillRect(8,-3,22,4);
+                g.setColor(new Color(35,42,35)); g.fillRect(30,-3,8,3); // barrel
+                g.setColor(new Color(80,90,80)); g.fillRect(14,-1,6,2); // scope
+            }
+            case BAT -> {
+                g.setColor(new Color(100,65,30)); g.setStroke(new BasicStroke(3f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                g.drawLine(6,-2,28,0); g.setStroke(new BasicStroke(1f));
+                g.setColor(new Color(140,90,40)); g.drawLine(6,-2,10,-1);
+            }
         }
-        g.setTransform(old);
     }
 
-    // ── 7. Bullets ────────────────────────────────────────────────────────────
-
+    // ── 9. Bullets ────────────────────────────────────────────────────────────
     private void drawBullets(Graphics2D g, GameState gs) {
         for (Bullet b : new ArrayList<>(gs.getBullets())) {
-            float bx = b.getX(), by = b.getY();
-            Color col = switch (b.getWeapon()) {
-                case PISTOL  -> new Color(255,230,100);
-                case SHOTGUN -> new Color(255,180,60);
-                case RIFLE   -> new Color(100,255,200);
-                default      -> new Color(255,255,100);
-            };
+            float bx=b.getX(), by=b.getY();
+            double ba=Math.atan2(b.getDy(), b.getDx());
+            boolean isShotgun = b.getWeapon() == Weapon.SHOTGUN;
+            int tl=isShotgun?6:10;
             // Trail
-            g.setColor(new Color(col.getRed(), col.getGreen(), col.getBlue(), 80));
-            g.setStroke(new BasicStroke(2f));
-            g.drawLine((int)(bx-b.getDx()*2),(int)(by-b.getDy()*2),(int)bx,(int)by);
-            g.setStroke(new BasicStroke(1f));
+            g.setColor(new Color(255,220,80,80));
+            g.setStroke(new BasicStroke(isShotgun?1.5f:2f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+            g.drawLine((int)(bx-(float)Math.cos(ba)*tl),(int)(by-(float)Math.sin(ba)*tl),(int)bx,(int)by);
             // Head
-            g.setColor(col);
-            g.fillOval((int)bx-3,(int)by-3,6,6);
+            g.setColor(new Color(255,240,120));
+            g.fillOval((int)(bx-2),(int)(by-2),4,4);
+            g.setStroke(new BasicStroke(1f));
         }
     }
 
-    // ── 8. Particles ──────────────────────────────────────────────────────────
-
+    // ── 10. Particles ─────────────────────────────────────────────────────────
     private void drawParticles(Graphics2D g) {
-        for (float[] p : new ArrayList<>(particles)) {
-            float alpha = p[4]/p[5];
-            int a = (int)(alpha*200);
-            if (a<=0) continue;
-            g.setColor(new Color((int)p[6],(int)p[7],(int)p[8],a));
-            int sz = (int)(p[9]*alpha)+1;
-            g.fillOval((int)p[0]-sz/2,(int)p[1]-sz/2,sz,sz);
+        for (float[] p : particles) {
+            float a=Math.max(0,p[4]/p[5]);
+            int al=(int)(a*220);
+            if (al<=0) continue;
+            g.setColor(new Color((int)p[6],(int)p[7],(int)p[8],al));
+            float s=p[9]*a;
+            g.fillOval((int)(p[0]-s/2),(int)(p[1]-s/2),(int)s,(int)s);
         }
     }
 
-    // ── 9. Dynamic lighting ───────────────────────────────────────────────────
-
-    private void drawDynLighting(Graphics2D g, GameState gs) {
-        if (lightMap==null||lightMap.getWidth()!=VW||lightMap.getHeight()!=VH)
-            lightMap = new BufferedImage(VW, VH, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D lg = lightMap.createGraphics();
-        lg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        lg.setComposite(AlphaComposite.Clear); lg.fillRect(0,0,VW,VH);
+    // ── 11. Dynamic lighting (LDOE dark lantern) ──────────────────────────────
+    private void drawDynLighting(Graphics2D g, GameState gs, int cx, int cy, int vw, int vh) {
+        if (lightMap==null||lightMap.getWidth()!=vw||lightMap.getHeight()!=vh)
+            lightMap=new BufferedImage(vw,vh,BufferedImage.TYPE_INT_ARGB);
+        Graphics2D lg=lightMap.createGraphics();
+        lg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+        // Much less dark — alpha 65 instead of 185 so the map is clearly visible
+        lg.setComposite(AlphaComposite.Clear); lg.fillRect(0,0,vw,vh);
         lg.setComposite(AlphaComposite.Src);
-        lg.setColor(new Color(0,0,0,155)); lg.fillRect(0,0,VW,VH);
+        lg.setColor(new Color(0,0,0,65)); lg.fillRect(0,0,vw,vh);
         lg.setComposite(AlphaComposite.DstOut);
 
+        // Player warm lantern light — larger radius so surroundings are visible
         for (Player p : gs.getPlayers().values()) {
-            int wx = p.getX()+Player.SIZE/2, wy = p.getY()+Player.SIZE/2;
-            int sx = wx-(int)camX, sy = wy-(int)camY;
-            boolean isMe = p.getId().equals(myPlayerId);
-            float rad = isMe ? (p.isInfected() ? 110 : 170) : (p.isInfected() ? 80 : 115);
-            if (p.hasSpeedBoost()) rad *= 1.15f;
-            if (sx+rad<0||sx-rad>VW||sy+rad<0||sy-rad>VH) continue;
+            int wx=p.getX()+Player.SIZE/2, wy=p.getY()+Player.SIZE/2;
+            int sx=wx-cx, sy=wy-cy;
+            boolean isMe=p.getId().equals(myPlayerId);
+            float rad=isMe?(p.isInfected()?160:300):200;  // was 180/120
+            if (p.hasSpeedBoost()) rad*=1.15f;
+            if (sx+rad<0||sx-rad>vw||sy+rad<0||sy-rad>vh) continue;
             try {
-                lg.setPaint(new RadialGradientPaint(sx, sy, rad,
+                lg.setPaint(new RadialGradientPaint(sx,sy,rad,
                     new float[]{0f,0.5f,1f},
-                    new Color[]{new Color(255,255,255,255),new Color(255,255,255,160),new Color(255,255,255,0)}));
+                    new Color[]{new Color(255,240,190,255),new Color(255,220,140,160),new Color(255,180,80,0)}));
                 lg.fillOval((int)(sx-rad),(int)(sy-rad),(int)(rad*2),(int)(rad*2));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored){}
         }
-        // NPC zombies emit faint red light
+
+        // NPC zombie faint red glow
         for (NpcZombie npc : gs.getNpcZombies().values()) {
             if (!npc.isAlive()) continue;
-            int sx = (int)(npc.getX()+NpcZombie.SIZE/2-camX);
-            int sy = (int)(npc.getY()+NpcZombie.SIZE/2-camY);
-            if (sx<-60||sx>VW+60||sy<-60||sy>VH+60) continue;
+            int sx=(int)(npc.getX()+NpcZombie.SIZE/2-cx);
+            int sy=(int)(npc.getY()+NpcZombie.SIZE/2-cy);
+            if (sx<-60||sx>vw+60||sy<-60||sy>vh+60) continue;
             try {
-                lg.setPaint(new RadialGradientPaint(sx,sy,50,
-                    new float[]{0f,1f}, new Color[]{new Color(255,80,0,120),new Color(0,0,0,0)}));
-                lg.fillOval(sx-50,sy-50,100,100);
-            } catch (Exception ignored) {}
+                lg.setPaint(new RadialGradientPaint(sx,sy,45,
+                    new float[]{0f,1f},new Color[]{new Color(200,30,0,90),new Color(0,0,0,0)}));
+                lg.fillOval(sx-45,sy-45,90,90);
+            } catch(Exception ignored){}
         }
         lg.dispose();
 
-        // Composite to main canvas (screen space)
-        AffineTransform old = g.getTransform();
-        g.setTransform(new AffineTransform()); // reset to screen space
+        AffineTransform old=g.getTransform();
+        g.setTransform(new AffineTransform());
         g.setComposite(AlphaComposite.SrcOver);
-        g.drawImage(lightMap, (int)camX, (int)camY, null); // align with camera
-        // Actually draw in screen space
-        g.drawImage(lightMap, 0, 0, null);
+        g.drawImage(lightMap,0,0,null);
         g.setTransform(old);
     }
 
-    // ── 10. Kill feed ─────────────────────────────────────────────────────────
-
-    private void drawKillFeed(Graphics2D g, GameState gs) {
-        List<KillFeedEntry> feed = new ArrayList<>(gs.getKillFeed());
-        if (feed.isEmpty()) return;
-        // Draw in world space top-right (offset by camera so it stays on screen)
-        int kx = (int)camX + VW - 270;
-        int ky = (int)camY + 14;
-        for (int i = feed.size()-1; i >= 0; i--) {
-            KillFeedEntry e = feed.get(i);
-            long age = System.currentTimeMillis() - e.getTimestamp();
-            float alpha = Math.max(0f, 1f - age / 6000f);
-            int a = (int)(alpha * 200);
-            if (a <= 0) continue;
-            String text = e.getKillerName() + " " + e.icon() + " " + e.getVictimName();
-            g.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            FontMetrics fm = g.getFontMetrics();
-            int tw = fm.stringWidth(text);
-            g.setColor(new Color(0,0,0,(int)(a*0.7f)));
-            g.fillRoundRect(kx-tw-8, ky-13, tw+12, 16, 4, 4);
-            g.setColor(new Color(220,220,220,a));
-            g.drawString(text, kx-tw, ky);
-            ky += 22;
+    // ── 12. Kill feed ─────────────────────────────────────────────────────────
+    private void drawKillFeed(Graphics2D g, GameState gs, int cx, int cy, int vw) {
+        List<KillFeedEntry> feed=new ArrayList<>(gs.getKillFeed()); if (feed.isEmpty()) return;
+        int kx=cx+vw-280, ky=cy+16;
+        for (int i=feed.size()-1;i>=0;i--) {
+            KillFeedEntry e=feed.get(i);
+            long age=System.currentTimeMillis()-e.getTimestamp();
+            float al=Math.max(0f,1f-age/6000f);
+            int a=(int)(al*200); if(a<=0) continue;
+            String text=e.getKillerName()+" "+e.icon()+" "+e.getVictimName();
+            g.setFont(new Font("Segoe UI",Font.BOLD,11));
+            FontMetrics fm=g.getFontMetrics(); int tw=fm.stringWidth(text);
+            g.setColor(new Color(12,10,6,(int)(a*0.75f))); g.fillRoundRect(kx-tw-10,ky-13,tw+14,16,4,4);
+            g.setColor(new Color(200,185,140,a)); g.drawString(text,kx-tw,ky);
+            ky+=22;
         }
     }
 
-    // ── 11. Minimap ───────────────────────────────────────────────────────────
+    // ── 13. Minimap (LDOE dark style) ────────────────────────────────────────
+    private void drawMinimap(Graphics2D g, GameState gs, int vw, int vh) {
+        int mmW=180,mmH=134,mmX=vw-mmW-12,mmY=vh-mmH-12;
+        float sx=mmW/(float)CW, sy=mmH/(float)CH;
 
-    private void drawMinimap(Graphics2D g, GameState gs) {
-        int mmW=190, mmH=140, mmX=VW-mmW-10, mmY=10;
-        float sx = mmW / (float)CW, sy = mmH / (float)CH;
+        // Dark background with border
+        g.setColor(new Color(8,8,6,210)); g.fillRoundRect(mmX-3,mmY-3,mmW+6,mmH+6,6,6);
+        g.setColor(new Color(14,14,10,240)); g.fillRect(mmX,mmY,mmW,mmH);
 
-        g.setColor(new Color(0,0,0,175)); g.fillRoundRect(mmX-2,mmY-2,mmW+4,mmH+4,6,6);
-        g.setColor(new Color(15,20,15,220)); g.fillRect(mmX,mmY,mmW,mmH);
-
-        // Tiles (zoomed out — sample every 4 tiles)
-        for (int row = 0; row < MH; row+=2) {
-            for (int col = 0; col < MW; col+=2) {
-                int tile = GameState.MAP[row][col];
-                Color tc = tile==1 ? new Color(50,55,70) : tile==2 ? new Color(28,95,60) : new Color(25,42,25);
-                g.setColor(tc);
-                g.fillRect(mmX+(int)(col*TS*sx), mmY+(int)(row*TS*sy), Math.max(1,(int)(2*TS*sx)), Math.max(1,(int)(2*TS*sy)));
-            }
+        // Tile sampling
+        for (int row=0;row<MH;row+=2) for (int col=0;col<MW;col+=2) {
+            int tile=GameState.MAP[row][col];
+            Color tc=tile==1?new Color(55,52,46):tile==2?new Color(25,50,25):new Color(28,38,18);
+            g.setColor(tc);
+            g.fillRect(mmX+(int)(col*TS*sx),mmY+(int)(row*TS*sy),Math.max(1,(int)(2*TS*sx)),Math.max(1,(int)(2*TS*sy)));
         }
 
-        // Viewport rectangle
-        g.setColor(new Color(255,255,255,40));
-        g.drawRect(mmX+(int)(camX*sx), mmY+(int)(camY*sy), (int)(VW*sx), (int)(VH*sy));
+        // Viewport rect
+        g.setColor(new Color(200,180,80,35));
+        int vx2=mmX+(int)(camX*sx),vy2=mmY+(int)(camY*sy);
+        g.fillRect(vx2,vy2,(int)(getWidth()*sx),(int)(getHeight()*sy));
+        g.setColor(new Color(200,180,80,80));
+        g.drawRect(vx2,vy2,(int)(getWidth()*sx),(int)(getHeight()*sy));
 
-        // NPC zombies
+        // NPCs (red dots)
         for (NpcZombie npc : gs.getNpcZombies().values()) {
             if (!npc.isAlive()) continue;
-            g.setColor(new Color(180,40,40,180));
-            g.fillOval(mmX+(int)(npc.getX()*sx)-2, mmY+(int)(npc.getY()*sy)-2,4,4);
+            g.setColor(new Color(180,35,35,180));
+            g.fillOval(mmX+(int)(npc.getX()*sx)-2,mmY+(int)(npc.getY()*sy)-2,4,4);
         }
 
         // Players
         for (Player p : gs.getPlayers().values()) {
-            boolean isMe = p.getId().equals(myPlayerId);
-            g.setColor(p.isInfected() ? new Color(80,210,80) : (isMe ? Color.WHITE : new Color(100,160,255)));
-            int mx = mmX+(int)(p.getXf()*sx), my = mmY+(int)(p.getYf()*sy);
+            boolean isMe=p.getId().equals(myPlayerId);
+            g.setColor(p.isInfected()?new Color(80,200,80):isMe?new Color(220,190,60):new Color(100,155,220));
+            int mx=mmX+(int)(p.getXf()*sx),my=mmY+(int)(p.getYf()*sy);
             g.fillOval(mx-3,my-3,6,6);
-            if (isMe) { g.setColor(new Color(255,255,255,100)); g.drawOval(mx-5,my-5,10,10); }
+            if (isMe){g.setColor(new Color(220,190,60,80));g.drawOval(mx-5,my-5,10,10);}
         }
 
-        g.setColor(new Color(60,90,60)); g.setStroke(new BasicStroke(1f));
-        g.drawRoundRect(mmX-2,mmY-2,mmW+4,mmH+4,6,6);
-        g.setFont(new Font("Segoe UI", Font.BOLD, 9)); g.setColor(new Color(80,120,80));
-        g.drawString("MAP", mmX+4, mmY+mmH+12);
+        // Border glow
+        g.setColor(new Color(80,65,30,150)); g.setStroke(new BasicStroke(1.2f));
+        g.drawRoundRect(mmX-3,mmY-3,mmW+6,mmH+6,6,6); g.setStroke(new BasicStroke(1f));
+        // Label
+        g.setFont(new Font("Segoe UI",Font.BOLD,8)); g.setColor(new Color(100,85,45));
+        g.drawString("TACTICAL MAP",mmX+4,mmY-5);
     }
 
-    // ── 12. Crosshair ─────────────────────────────────────────────────────────
-
-    private void drawCrosshair(Graphics2D g, GameState gs) {
-        Player me = gs.getPlayer(myPlayerId);
-        if (me == null || me.isInfected()) return;
-        int mx = mouseScreenX, my = mouseScreenY;
-        g.setColor(new Color(255,255,255,180));
-        g.setStroke(new BasicStroke(1.5f));
-        g.drawLine(mx-10,my,mx-4,my); g.drawLine(mx+4,my,mx+10,my);
-        g.drawLine(mx,my-10,mx,my-4); g.drawLine(mx,my+4,mx,my+10);
-        g.drawOval(mx-4,my-4,8,8);
+    // ── 14. Crosshair ─────────────────────────────────────────────────────────
+    private void drawCrosshair(Graphics2D g, GameState gs, int vw, int vh) {
+        Player me=gs.getPlayer(myPlayerId);
+        if (me==null||me.isInfected()) return;
+        int mx=mouseScreenX,my=mouseScreenY;
+        // Outer ring
+        g.setColor(new Color(220,200,100,130));
+        g.setStroke(new BasicStroke(1.2f));
+        g.drawOval(mx-12,my-12,24,24);
+        // Cross
+        g.setColor(new Color(255,240,150,200));
+        g.drawLine(mx-18,my,mx-5,my); g.drawLine(mx+5,my,mx+18,my);
+        g.drawLine(mx,my-18,mx,my-5); g.drawLine(mx,my+5,mx,my+18);
+        // Center dot
+        g.setColor(new Color(255,240,150,240));
+        g.fillOval(mx-2,my-2,4,4);
         g.setStroke(new BasicStroke(1f));
     }
 
-    // ── 13. Zombie vignette ───────────────────────────────────────────────────
-
-    private void drawZombieVig(Graphics2D g, GameState gs) {
-        Player me = gs.getPlayer(myPlayerId);
-        if (me == null || !me.isInfected()) return;
-        float pulse = 0.3f+0.25f*(float)Math.sin(animTick*0.07);
-        Paint sv = g.getPaint();
-        g.setPaint(new RadialGradientPaint(VW/2f,VH/2f,Math.max(VW,VH)*0.6f,
-            new float[]{0.45f,1f}, new Color[]{new Color(0,0,0,0),new Color(140,0,0,(int)(140*pulse))}));
-        g.fillRect(0,0,VW,VH);
-        g.setPaint(sv);
+    // ── 15. Vignette ─────────────────────────────────────────────────────────
+    private void drawVignette(Graphics2D g, GameState gs, int vw, int vh) {
+        Player me=gs.getPlayer(myPlayerId);
+        boolean zomb=(me!=null&&me.isInfected());
+        float pulse=0.3f+0.25f*(float)Math.sin(animTick*0.07);
+        Color vc=zomb?new Color(80,0,0,(int)(160*pulse)):new Color(0,0,0,100);
+        g.setPaint(new RadialGradientPaint(vw/2f,vh/2f,Math.max(vw,vh)*0.62f,
+            new float[]{0.4f,1f},new Color[]{new Color(0,0,0,0),vc}));
+        g.fillRect(0,0,vw,vh);
     }
 
-    // ── 14. Game over overlay ─────────────────────────────────────────────────
+    // ── Game-over overlay ─────────────────────────────────────────────────────
+    private void renderGameOver(Graphics2D g, GameState gs, int vw, int vh) {
+        g.setColor(new Color(0,0,0,175)); g.fillRect(0,0,vw,vh);
+        String winner=gs.getWinnerMessage();
+        boolean survWin=winner.contains("SURVIVOR");
 
-    private void renderGameOver(Graphics2D g, GameState gs) {
-        // Dark overlay
-        g.setColor(new Color(0,0,0,160)); g.fillRect(0,0,VW,VH);
+        // Flare
+        Color flare=survWin?new Color(60,200,80,50):new Color(200,40,40,50);
+        g.setPaint(new RadialGradientPaint(vw/2f,vh/2f-60,220,new float[]{0f,1f},new Color[]{flare,new Color(0,0,0,0)}));
+        g.fillRect(0,0,vw,vh);
 
-        String winner = gs.getWinnerMessage();
-        boolean survWin = winner.contains("SURVIVOR");
-        Color titleCol  = survWin ? new Color(80,200,100) : new Color(210,50,50);
+        g.setFont(new Font("Impact",Font.PLAIN,70));
+        g.setColor(new Color(0,0,0,200)); drawCentered(g,winner,vw/2+4,vh/2-54+4);
+        g.setPaint(survWin?new GradientPaint(vw/2-200,vh/2-120,new Color(80,200,80),vw/2+200,vh/2-50,new Color(40,160,40))
+                          :new GradientPaint(vw/2-200,vh/2-120,new Color(220,50,50),vw/2+200,vh/2-50,new Color(160,20,20)));
+        drawCentered(g,winner,vw/2,vh/2-58);
 
-        g.setFont(new Font("Impact", Font.PLAIN, 62));
-        g.setColor(new Color(0,0,0,180)); drawCentered(g,winner,VW/2+3,VH/2-60+3);
-        g.setColor(titleCol); drawCentered(g,winner,VW/2,VH/2-60);
+        g.setFont(new Font("Segoe UI",Font.PLAIN,16));
+        g.setColor(new Color(180,175,150));
+        drawCentered(g,"Resetting in "+gs.getGameOverCountdown()+" seconds...",vw/2,vh/2-10);
 
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 16));
-        g.setColor(new Color(180,185,200));
-        drawCentered(g,"Resetting in " + gs.getGameOverCountdown() + " seconds...", VW/2, VH/2);
-
-        // Top 3 scoreboard
-        List<Player> ranked = new ArrayList<>(gs.getPlayers().values());
-        ranked.sort((a,b) -> b.getScore()-a.getScore());
-        int sy = VH/2+38;
-        g.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        g.setColor(new Color(160,165,185));
-        drawCentered(g,"─── SCOREBOARD ───", VW/2, sy); sy += 26;
+        // Scoreboard
+        List<Player> ranked=new ArrayList<>(gs.getPlayers().values());
+        ranked.sort((a,b)->b.getScore()-a.getScore());
+        int sy=vh/2+28;
+        g.setFont(new Font("Segoe UI",Font.BOLD,12)); g.setColor(new Color(150,140,100));
+        drawCentered(g,"── SCOREBOARD ──",vw/2,sy); sy+=26;
         for (int i=0;i<Math.min(ranked.size(),5);i++) {
-            Player p = ranked.get(i);
-            String line = (i+1)+".  "+p.getName()+"   "+p.getScore()+" pts   "+p.getKills()+" kills";
-            g.setColor(i==0?new Color(215,180,25):i==1?new Color(180,185,195):i==2?new Color(180,140,80):new Color(130,135,155));
-            g.setFont(new Font("Segoe UI", i<3 ? Font.BOLD : Font.PLAIN, 12));
-            drawCentered(g,line,VW/2,sy); sy+=22;
+            Player p=ranked.get(i);
+            String line=(i+1)+".  "+p.getName()+"   "+p.getScore()+" pts   "+p.getKills()+" kills";
+            g.setColor(i==0?new Color(215,180,25):i==1?new Color(185,190,200):i==2?new Color(180,140,80):new Color(120,120,110));
+            g.setFont(new Font("Segoe UI",i<3?Font.BOLD:Font.PLAIN,12));
+            drawCentered(g,line,vw/2,sy); sy+=22;
         }
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
     private void drawCentered(Graphics2D g, String text, int cx, int y) {
-        FontMetrics fm = g.getFontMetrics();
-        g.drawString(text, cx-fm.stringWidth(text)/2, y);
+        FontMetrics fm=g.getFontMetrics(); g.drawString(text,cx-fm.stringWidth(text)/2,y);
     }
+    private float rndF() { return (float)Math.random(); }
 
     // ── Tile texture builders ─────────────────────────────────────────────────
 
-    private BufferedImage makeTileGrass(int variant) {
-        BufferedImage img = new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        Color base = variant==0 ? new Color(32,55,24) : new Color(28,50,20);
+    private BufferedImage makeTileGrass(int variant, Color base) {
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
         g.setColor(base); g.fillRect(0,0,TS,TS);
-        Random rng = new Random(variant*997L);
-        for (int i=0;i<28;i++) {
-            int bx=rng.nextInt(TS), by=rng.nextInt(TS), bs=rng.nextInt(4)+1;
-            Color bc = new Color(Math.min(255,base.getRed()+rng.nextInt(18)-9),
-                                 Math.min(255,base.getGreen()+rng.nextInt(20)-10),
-                                 Math.min(255,base.getBlue()+rng.nextInt(12)-6));
-            g.setColor(bc); g.fillOval(bx,by,bs,bs);
+        Random r=new Random(variant*1337L+77);
+        for (int i=0;i<35;i++) {
+            int bx=r.nextInt(TS), by=r.nextInt(TS), bs=r.nextInt(3)+1;
+            int dr=r.nextInt(16)-8, dg=r.nextInt(18)-9;
+            Color bc=new Color(clamp(base.getRed()+dr),clamp(base.getGreen()+dg),clamp(base.getBlue()+dr/2));
+            g.setColor(bc); g.fillRect(bx,by,bs,bs);
+        }
+        // Occasional small pebble
+        for (int i=0;i<4;i++){
+            int bx=r.nextInt(TS),by=r.nextInt(TS);
+            g.setColor(new Color(48,46,42)); g.fillRect(bx,by,2,2);
         }
         g.dispose(); return img;
     }
 
     private BufferedImage makeTileWall() {
-        BufferedImage img = new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        g.setColor(new Color(58,62,78)); g.fillRect(0,0,TS,TS);
-        g.setColor(new Color(48,52,66));
-        g.fillRect(0,0,TS,14); g.fillRect(16,14,TS,18);
-        g.setColor(new Color(72,76,92));
-        g.drawRect(1,1,TS-3,12);
-        g.drawRect(17,15,TS-18,16);
-        g.setColor(new Color(35,38,52)); g.drawRect(0,0,TS-1,TS-1);
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
+        // Brighter stone base so walls are clearly visible
+        g.setColor(C_WALL_TOP); g.fillRect(0,0,TS,TS);
+        g.setColor(new Color(55,50,44));
+        // Brick rows
+        for (int row=0;row<4;row++){
+            int y=row*8;
+            g.drawLine(0,y,TS,y);
+            int off=(row%2==0)?0:TS/2;
+            g.drawLine(off,y,off,y+8);
+            g.drawLine(off+TS/2,y,off+TS/2,y+8);
+        }
+        // Top highlight for 3D look
+        g.setColor(new Color(100,95,88)); g.fillRect(0,0,TS,3);
+        // Bottom shadow
+        g.setColor(new Color(30,27,24)); g.fillRect(0,TS-4,TS,4);
         g.dispose(); return img;
     }
 
     private BufferedImage makeTileSafe() {
-        BufferedImage img = new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        g.setColor(new Color(22,55,32)); g.fillRect(0,0,TS,TS);
-        g.setColor(new Color(18,42,26));
-        for (int i=0;i<TS;i+=8) { g.drawLine(i,0,i,TS); g.drawLine(0,i,TS,i); }
-        g.setColor(new Color(28,80,44,80));
-        g.fillRect(2,2,TS-4,TS-4);
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
+        g.setColor(C_SAFE_FL); g.fillRect(0,0,TS,TS);
+        g.setColor(new Color(18,36,18));
+        for (int i=0;i<TS;i+=8){ g.drawLine(i,0,i,TS); g.drawLine(0,i,TS,i); }
+        g.setColor(new Color(28,70,28,70)); g.fillRect(2,2,TS-4,TS-4);
         g.dispose(); return img;
     }
 
-    private BufferedImage makeTileRoad() {
-        BufferedImage img = new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        g.setColor(new Color(40,40,42)); g.fillRect(0,0,TS,TS);
-        g.setColor(new Color(52,52,54)); g.drawRect(0,0,TS-1,TS-1);
+    private BufferedImage makeTileConcrete() {
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
+        g.setColor(C_CONCRETE); g.fillRect(0,0,TS,TS);
+        // Crack lines
+        g.setColor(new Color(35,35,40)); g.drawLine(4,8,14,22); g.drawLine(18,2,28,18);
+        g.setColor(new Color(65,65,70)); g.fillRect(0,0,TS,2); g.fillRect(0,0,2,TS);
         g.dispose(); return img;
     }
+
+    private BufferedImage makeTileAsphalt() {
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
+        g.setColor(C_ASPHALT); g.fillRect(0,0,TS,TS);
+        // Noise
+        Random r=new Random(42L);
+        for (int i=0;i<20;i++){
+            int bx=r.nextInt(TS),by=r.nextInt(TS);
+            g.setColor(new Color(38,38,42)); g.fillRect(bx,by,2,1);
+        }
+        g.dispose(); return img;
+    }
+
+    private BufferedImage makeTileDirt() {
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
+        g.setColor(C_DIRT); g.fillRect(0,0,TS,TS);
+        Random r=new Random(77L);
+        for (int i=0;i<30;i++){
+            int bx=r.nextInt(TS),by=r.nextInt(TS);
+            g.setColor(new Color(clamp(C_DIRT.getRed()+r.nextInt(14)-7),
+                                 clamp(C_DIRT.getGreen()+r.nextInt(10)-5),
+                                 clamp(C_DIRT.getBlue()+r.nextInt(8)-4)));
+            g.fillRect(bx,by,2,2);
+        }
+        g.dispose(); return img;
+    }
+
+    private BufferedImage makeTileWoodFloor() {
+        BufferedImage img=new BufferedImage(TS,TS,BufferedImage.TYPE_INT_RGB);
+        Graphics2D g=img.createGraphics();
+        g.setColor(C_WOOD_FL); g.fillRect(0,0,TS,TS);
+        // Plank lines
+        g.setColor(new Color(38,28,16));
+        for (int x=0;x<TS;x+=8) g.drawLine(x,0,x,TS);
+        g.setColor(new Color(60,44,26,80)); g.fillRect(2,1,4,TS-2);
+        g.dispose(); return img;
+    }
+
+    private static int clamp(int v){ return Math.max(0,Math.min(255,v)); }
 }

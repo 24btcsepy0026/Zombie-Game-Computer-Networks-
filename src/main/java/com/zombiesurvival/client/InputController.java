@@ -60,18 +60,18 @@ public class InputController {
         frame.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (e.getButton() == MouseEvent.BUTTON1) sendShoot(e.getPoint());
+                if (e.getButton() == MouseEvent.BUTTON1) sendShootFromFrame(e.getPoint());
             }
         });
 
-        // Track mouse for aim direction on canvas
+        // Track mouse for aim direction on canvas, continuous fire on drag
         frame.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e)   { updateMousePos(e.getPoint()); }
             @Override
             public void mouseDragged(MouseEvent e) {
                 updateMousePos(e.getPoint());
-                if (SwingUtilities.isLeftMouseButton(e)) sendShoot(e.getPoint());
+                if (SwingUtilities.isLeftMouseButton(e)) sendShootFromFrame(e.getPoint());
             }
         });
     }
@@ -92,9 +92,10 @@ public class InputController {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private void updateMousePos(Point p) {
-        // Convert screen point → world position by adding camera offset
-        mouseWorldX = p.x + camOffsetX;
-        mouseWorldY = p.y + camOffsetY;
+        // Convert frame-relative point → canvas-relative → world position
+        Insets ins = frame.getInsets();
+        mouseWorldX = (p.x - ins.left) + camOffsetX;
+        mouseWorldY = (p.y - ins.top)  + camOffsetY;
     }
 
     private void sendMove() {
@@ -106,6 +107,14 @@ public class InputController {
         if (dx == 0 && dy == 0) return;
         boolean sprint = held.contains(KeyEvent.VK_SHIFT);
         client.sendMessage(new MoveCommand(dx, dy, sprint));
+    }
+
+    private void sendShootFromFrame(Point framePoint) {
+        // Frame-relative point includes the title bar (insets.top).
+        // Subtract insets to get canvas-relative screen position.
+        Insets ins = frame.getInsets();
+        Point canvasPoint = new Point(framePoint.x - ins.left, framePoint.y - ins.top);
+        sendShoot(canvasPoint);
     }
 
     private void sendShoot(Point screenPoint) {

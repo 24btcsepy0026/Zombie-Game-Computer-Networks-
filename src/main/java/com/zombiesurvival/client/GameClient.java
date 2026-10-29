@@ -1,5 +1,6 @@
 package com.zombiesurvival.client;
 
+import com.zombiesurvival.client.ui.GameLauncher;
 import com.zombiesurvival.client.ui.GameScreen;
 import com.zombiesurvival.shared.*;
 
@@ -105,23 +106,7 @@ public class GameClient {
     // ── Entry point ────────────────────────────────────────────────────────────
 
     public static void main(String[] args) {
-        JTextField ipField   = new JTextField("localhost", 18);
-        JTextField nameField = new JTextField(System.getProperty("user.name", "Player"), 18);
-        JPanel panel = new JPanel(new java.awt.GridLayout(2, 2, 6, 6));
-        panel.add(new JLabel("Server IP:"));  panel.add(ipField);
-        panel.add(new JLabel("Your Name:")); panel.add(nameField);
-
-        int result = JOptionPane.showConfirmDialog(null, panel,
-            "☣ Zombie Survival – Connect", JOptionPane.OK_CANCEL_OPTION,
-            JOptionPane.PLAIN_MESSAGE);
-
-        if (result != JOptionPane.OK_OPTION) System.exit(0);
-
-        String ip   = ipField.getText().trim();
-        String name = nameField.getText().trim();
-        if (ip.isEmpty())   ip   = "localhost";
-        if (name.isEmpty()) name = "Player";
-
-        new GameClient().start(ip, name);
+        // Use cinematic full-screen launcher instead of plain dialog
+        SwingUtilities.invokeLater(GameLauncher::new);
     }
 }
