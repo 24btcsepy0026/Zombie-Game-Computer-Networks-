@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo   ZOMBIE ESCAPE - Unified Game
+echo   ZOMBIE ESCAPE - 2D Edition
 echo ========================================
 echo.
 
@@ -10,7 +10,7 @@ if exist "out\com\zombiesurvival\client\voxel" goto do_compile
 goto run
 
 :do_compile
-echo Compiled classes not found or stale. Compiling...
+echo Compiled classes not found or stale. Compiling 2D game...
 echo.
 call compile.bat
 if %ERRORLEVEL% NEQ 0 (
