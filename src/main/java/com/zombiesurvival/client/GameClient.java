@@ -19,6 +19,10 @@ public class GameClient {
 
     private static volatile boolean serverStarted = false;
 
+    public static void setServerStarted(boolean started) {
+        serverStarted = started;
+    }
+
     private Socket             socket;
     private ObjectOutputStream out;
     private ObjectInputStream  in;
