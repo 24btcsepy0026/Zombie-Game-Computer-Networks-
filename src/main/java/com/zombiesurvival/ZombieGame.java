@@ -20,6 +20,7 @@ public class ZombieGame {
         }, "IntegratedServer");
         serverThread.setDaemon(true); // Server stops when client exits
         serverThread.start();
+        GameClient.setServerStarted(true);
         
         // Wait a moment for server to start
         try {
