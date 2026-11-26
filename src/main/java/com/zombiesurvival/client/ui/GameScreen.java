@@ -43,7 +43,7 @@ public class GameScreen extends JFrame {
         add(chatPanel,  BorderLayout.EAST);
 
         // InputController handles keyboard + mouse; link to canvas for camera offset
-        InputController ic = new InputController(client, this);
+        InputController ic = new InputController(client, this, gameCanvas);
         gameCanvas.setInputController(ic);
         ic.start();
 
@@ -64,10 +64,10 @@ public class GameScreen extends JFrame {
         setFocusable(true);
         setResizable(true);
 
-        // Start maximised for a big-screen feel
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        // Pack first, then maximize so maximized state is preserved
         pack();
         setLocationRelativeTo(null);
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
         setVisible(true);
         requestFocusInWindow();
     }

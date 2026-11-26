@@ -48,8 +48,13 @@ public class ClientHandler implements Runnable {
 
     public void send(Object msg) {
         if (out == null) return;
-        try { out.writeObject(msg); out.flush(); out.reset(); }
-        catch (IOException ignored) {}
+        try {
+            synchronized (out) {
+                out.writeObject(msg);
+                out.flush();
+                out.reset();
+            }
+        } catch (IOException ignored) {}
     }
 
     // ── Main loop ─────────────────────────────────────────────────────────────
@@ -64,13 +69,20 @@ public class ClientHandler implements Runnable {
                                       GameState.TILE_SIZE * 2f,
                                       Player.Role.SURVIVOR);
                 state.getPlayers().put(playerId, p);
+                if (state.getHostPlayerName() == null || state.getHostPlayerName().isEmpty()) {
+                    state.setHostPlayerName(jr.getPlayerName());
+                }
                 send(new AssignIdMessage(playerId));
                 System.out.println("[ClientHandler] " + jr.getPlayerName() + " joined as " + playerId);
             }
 
             while (!socket.isClosed()) {
                 Object msg = in.readObject();
-                if      (msg instanceof MoveCommand   mc) handleMove(mc);
+                if      (msg instanceof StartGameMessage sgm) {
+                    state.setGameMode(sgm.getMode());
+                    engine.forceStartGame();
+                }
+                else if (msg instanceof MoveCommand   mc) handleMove(mc);
                 else if (msg instanceof ShootCommand  sc) handleShoot(sc);
                 else if (msg instanceof AbilityCommand ac) handleAbility(ac);
                 else if (msg instanceof ChatMessage   cm) server.broadcastChat(cm.getMessage(), playerId);
@@ -134,7 +146,14 @@ public class ClientHandler implements Runnable {
     private void handleShoot(ShootCommand sc) {
         if (state.getCurrentPhase() != GameState.Phase.PLAYING) return;
         Player p = state.getPlayer(playerId);
-        if (p == null || p.isInfected() || p.getHealth() <= 0 || !p.canFire()) return;
+        if (p == null || p.getHealth() <= 0 || !p.canFire()) return;
+
+        // Zombies attack with claw/bite melee toward cursor
+        if (p.isInfected()) {
+            handleMeleeAttack(p, sc.getDirX(), sc.getDirY(), Weapon.FIST);
+            p.setFireCooldown(12);
+            return;
+        }
 
         Weapon w = p.getCurrentWeapon();
         if (w.isMelee() || w.isThrowable()) {
@@ -168,11 +187,13 @@ public class ClientHandler implements Runnable {
         float ay = attacker.getYf() + Player.SIZE/2f + dirY * w.range;
         for (Player target : state.getPlayers().values()) {
             if (target.getId().equals(playerId)) continue;
+            // No friendly fire between survivors or between zombies
+            if (attacker.isInfected() == target.isInfected()) continue;
             float tx = target.getXf() + Player.SIZE/2f;
             float ty = target.getYf() + Player.SIZE/2f;
             float d  = (float) Math.sqrt((tx-ax)*(tx-ax) + (ty-ay)*(ty-ay));
             if (d <= w.range + Player.SIZE) {
-                int dmg = w.damage;
+                int dmg = attacker.isInfected() ? 22 : w.damage;
                 if (target.hasVest() || target.getArmor() > 0) {
                     dmg = Math.max(1, dmg * 6 / 10);
                     if (target.getArmor() > 0) target.drainArmor(3);
@@ -180,16 +201,28 @@ public class ClientHandler implements Runnable {
                 target.addHealth(-dmg);
                 if (target.getHealth() <= 0) {
                     if (!target.isInfected()) {
-                        // survivor hit by zombie melee
+                        // Survivor infected by zombie claw!
                         target.setRole(Player.Role.ZOMBIE);
                         target.setInfected(true);
-                        target.setHealth(60);
+                        target.setHealth(80);
+                        target.setArmor(0);
+                        target.setCurrentWeapon(Weapon.FIST);
+                        target.setPistolAmmo(0);
+                        target.setRifleAmmo(0);
+                        target.setShotgunAmmo(0);
                         state.addKillFeedEntry(new KillFeedEntry(
-                            attacker.getName(), target.getName(), KillFeedEntry.Method.MELEE));
+                            attacker.getName(), target.getName(), KillFeedEntry.Method.INFECTED));
                         attacker.addScore(100);
                         attacker.addKill();
                     } else {
-                        target.setHealth(30); // zombie survives at low hp
+                        // Zombie killed by survivor melee → respawn as zombie
+                        target.setX(GameState.TILE_SIZE * 14f);
+                        target.setY(GameState.TILE_SIZE * 14f);
+                        target.setHealth(80);
+                        state.addKillFeedEntry(new KillFeedEntry(
+                            attacker.getName(), target.getName(), KillFeedEntry.Method.MELEE));
+                        attacker.addScore(75);
+                        attacker.addKill();
                     }
                 }
             }

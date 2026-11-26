@@ -11,6 +11,7 @@ import java.util.concurrent.Executors;
 public class SoundManager {
 
     private static volatile boolean enabled = true;
+    private static volatile float   masterVolume = 0.75f;
 
     private static final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "SoundWorker");
@@ -20,6 +21,8 @@ public class SoundManager {
 
     public static void setEnabled(boolean v) { enabled = v; }
     public static boolean isEnabled()        { return enabled; }
+    public static void setVolume(float v)    { masterVolume = Math.max(0f, Math.min(1f, v)); }
+    public static float getVolume()          { return masterVolume; }
 
     // ── Public sound triggers ─────────────────────────────────────────────────
 
@@ -117,7 +120,7 @@ public class SoundManager {
                 if (i < attack) env = (float) i / attack;
                 if (i > samples * 0.70f) env = (float)(samples - i) / (samples * 0.30f);
 
-                short s = (short)(wave * 32767 * volume * env);
+                short s = (short)(wave * 32767 * volume * masterVolume * env);
                 buf[i*2]     = (byte)(s & 0xFF);
                 buf[i*2 + 1] = (byte)((s >> 8) & 0xFF);
             }

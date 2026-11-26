@@ -25,21 +25,33 @@ public class InputController {
 
     private final GameClient        client;
     private final JFrame            frame;
+    private final Component         canvas;
     private final Set<Integer>      held       = ConcurrentHashMap.newKeySet();
     private       javax.swing.Timer moveTimer;
+    private       KeyEventDispatcher keyDispatcher;
 
     // Mouse state (relative to game canvas)
     private volatile float mouseWorldX = 0, mouseWorldY = 0;
     private volatile float camOffsetX  = 0, camOffsetY  = 0;
 
     public InputController(GameClient client, JFrame frame) {
+        this(client, frame, frame);
+    }
+
+    public InputController(GameClient client, JFrame frame, Component canvas) {
         this.client = client;
         this.frame  = frame;
+        this.canvas = canvas;
 
-        // ── Keyboard ──────────────────────────────────────────────────────────
-        frame.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
+        // ── Keyboard (global within active GameScreen, except when typing in chat) ──
+        this.keyDispatcher = e -> {
+            if (!frame.isActive()) return false;
+            Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+            if (focusOwner instanceof JTextField) {
+                held.clear();
+                return false;
+            }
+            if (e.getID() == KeyEvent.KEY_PRESSED) {
                 held.add(e.getKeyCode());
                 switch (e.getKeyCode()) {
                     case KeyEvent.VK_Q -> client.sendMessage(new AbilityCommand(AbilityCommand.Type.LUNGE));
@@ -51,27 +63,36 @@ public class InputController {
                     case KeyEvent.VK_4 -> switchWeapon(Weapon.RIFLE);
                     case KeyEvent.VK_5 -> switchWeapon(Weapon.BAT);
                 }
+            } else if (e.getID() == KeyEvent.KEY_RELEASED) {
+                held.remove(e.getKeyCode());
             }
-            @Override
-            public void keyReleased(KeyEvent e) { held.remove(e.getKeyCode()); }
-        });
+            return false;
+        };
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(keyDispatcher);
 
-        // ── Mouse (left click = shoot) ────────────────────────────────────────
-        frame.addMouseListener(new MouseAdapter() {
+        // ── Mouse (attached directly to canvas for exact coordinates) ─────────
+        canvas.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (e.getButton() == MouseEvent.BUTTON1) sendShootFromFrame(e.getPoint());
+                frame.requestFocusInWindow();
+                if (e.getButton() == MouseEvent.BUTTON1) {
+                    if (canvas == frame) sendShootFromFrame(e.getPoint());
+                    else sendShoot(e.getPoint());
+                }
             }
         });
 
         // Track mouse for aim direction on canvas, continuous fire on drag
-        frame.addMouseMotionListener(new MouseMotionAdapter() {
+        canvas.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e)   { updateMousePos(e.getPoint()); }
             @Override
             public void mouseDragged(MouseEvent e) {
                 updateMousePos(e.getPoint());
-                if (SwingUtilities.isLeftMouseButton(e)) sendShootFromFrame(e.getPoint());
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    if (canvas == frame) sendShootFromFrame(e.getPoint());
+                    else sendShoot(e.getPoint());
+                }
             }
         });
     }
@@ -81,7 +102,12 @@ public class InputController {
         moveTimer.start();
     }
 
-    public void stop() { if (moveTimer != null) moveTimer.stop(); }
+    public void stop() {
+        if (moveTimer != null) moveTimer.stop();
+        if (keyDispatcher != null) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(keyDispatcher);
+        }
+    }
 
     /** Called by GameCanvas whenever its camera position changes. */
     public void updateCameraOffset(float camX, float camY) {
@@ -92,10 +118,14 @@ public class InputController {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private void updateMousePos(Point p) {
-        // Convert frame-relative point → canvas-relative → world position
-        Insets ins = frame.getInsets();
-        mouseWorldX = (p.x - ins.left) + camOffsetX;
-        mouseWorldY = (p.y - ins.top)  + camOffsetY;
+        if (canvas == frame) {
+            Insets ins = frame.getInsets();
+            mouseWorldX = (p.x - ins.left) + camOffsetX;
+            mouseWorldY = (p.y - ins.top)  + camOffsetY;
+        } else {
+            mouseWorldX = p.x + camOffsetX;
+            mouseWorldY = p.y + camOffsetY;
+        }
     }
 
     private void sendMove() {

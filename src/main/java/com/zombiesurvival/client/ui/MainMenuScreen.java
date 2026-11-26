@@ -82,6 +82,7 @@ public class MainMenuScreen extends JPanel {
         void onJoinLobby();
         void onStartMultiplayerGame();
         void onOpenSettings();
+        default void onLeaveLobby() {}
     }
 
     private final MenuActionListener listener;
@@ -195,8 +196,14 @@ public class MainMenuScreen extends JPanel {
             case INTRO -> System.exit(0);
             case MODE_SELECT -> setView(ViewState.INTRO);
             case MULTIPLAYER -> setView(ViewState.MODE_SELECT);
-            case INVITE_LOBBY -> setView(ViewState.MULTIPLAYER);
-            case CLIENT_LOBBY -> setView(ViewState.MULTIPLAYER);
+            case INVITE_LOBBY -> {
+                if (listener != null) listener.onLeaveLobby();
+                setView(ViewState.MULTIPLAYER);
+            }
+            case CLIENT_LOBBY -> {
+                if (listener != null) listener.onLeaveLobby();
+                setView(ViewState.MULTIPLAYER);
+            }
         }
     }
 
@@ -237,11 +244,13 @@ public class MainMenuScreen extends JPanel {
                         if (listener != null) listener.onStartMultiplayerGame();
                     }
                 } else if (index == 2) {
+                    if (listener != null) listener.onLeaveLobby();
                     setView(ViewState.MULTIPLAYER);
                 }
             }
             case CLIENT_LOBBY -> {
                 if (index == 0) {
+                    if (listener != null) listener.onLeaveLobby();
                     setView(ViewState.MULTIPLAYER);
                 }
             }

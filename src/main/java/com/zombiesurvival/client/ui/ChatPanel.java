@@ -45,6 +45,7 @@ public class ChatPanel extends JPanel {
 
         // Message list
         list = new JList<>(model);
+        list.setFocusable(false);
         list.setBackground(BG_DARK);
         list.setForeground(FG_TEXT);
         list.setFont(FONT_MSG);
@@ -74,6 +75,7 @@ public class ChatPanel extends JPanel {
         input.addActionListener(e -> sendChat());
 
         JButton sendBtn = new JButton("▶");
+        sendBtn.setFocusable(false);
         sendBtn.setBackground(new Color(50, 120, 60));
         sendBtn.setForeground(Color.WHITE);
         sendBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));

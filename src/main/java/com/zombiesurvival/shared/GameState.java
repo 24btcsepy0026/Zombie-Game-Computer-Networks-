@@ -184,14 +184,17 @@ public class GameState implements Serializable {
         return MAP[row][col] == 2;
     }
 
-    // ── Phase ─────────────────────────────────────────────────────────────────
-    public enum Phase { WAITING, PLAYING, GAME_OVER }
+    // ── Phase & Mode ──────────────────────────────────────────────────────────
+    public enum Phase    { WAITING, PLAYING, GAME_OVER }
+    public enum GameMode { SOLO, MULTIPLAYER }
 
     // ── State fields ──────────────────────────────────────────────────────────
-    private Phase  currentPhase      = Phase.WAITING;
-    private int    timeRemaining      = 180;   // 3 minutes
-    private String winnerMessage      = "";
-    private int    gameOverCountdown  = 10;
+    private Phase    currentPhase      = Phase.WAITING;
+    private GameMode gameMode          = GameMode.MULTIPLAYER;
+    private String   hostPlayerName    = "";
+    private int      timeRemaining     = 180;   // 3 minutes
+    private String   winnerMessage     = "";
+    private int      gameOverCountdown = 10;
 
     // Players
     private final Map<String, Player>   players   = new ConcurrentHashMap<>();
@@ -206,8 +209,14 @@ public class GameState implements Serializable {
 
     // ── Accessors ─────────────────────────────────────────────────────────────
 
-    public Phase  getCurrentPhase()              { return currentPhase; }
-    public void   setCurrentPhase(Phase p)       { this.currentPhase = p; }
+    public Phase    getCurrentPhase()              { return currentPhase; }
+    public void     setCurrentPhase(Phase p)       { this.currentPhase = p; }
+
+    public GameMode getGameMode()                  { return gameMode; }
+    public void     setGameMode(GameMode m)        { this.gameMode = m; }
+
+    public String   getHostPlayerName()            { return hostPlayerName; }
+    public void     setHostPlayerName(String name) { this.hostPlayerName = name; }
 
     public int    getTimeRemaining()             { return timeRemaining; }
     public void   setTimeRemaining(int t)        { this.timeRemaining = t; }
