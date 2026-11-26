@@ -34,6 +34,8 @@ public class InputController implements KeyListener {
         t.start();
     }
 
+    public void clearHeldKeys() { held.clear(); }
+
     @Override public void keyTyped(KeyEvent e) {}
     @Override public void keyPressed(KeyEvent e)  { synchronized (held) { held.add(e.getKeyCode()); } }
     @Override public void keyReleased(KeyEvent e) { synchronized (held) { held.remove(e.getKeyCode()); } }

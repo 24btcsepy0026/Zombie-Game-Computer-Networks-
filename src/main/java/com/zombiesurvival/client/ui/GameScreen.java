@@ -17,7 +17,9 @@ public class GameScreen extends JFrame {
     private final HudPanel   hudPanel;
     private final ChatPanel  chatPanel;
 
-    public GameScreen(GameClient client) {
+    private final JPanel lobbyControls = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+    public GameScreen(GameClient client, String inviteAddress, Runnable startMatch) {
         super("☣ Zombie Survival");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
@@ -31,6 +33,17 @@ public class GameScreen extends JFrame {
         add(hudPanel,   BorderLayout.SOUTH);
         add(chatPanel,  BorderLayout.EAST);
 
+        lobbyControls.add(new JLabel("Lobby  |  Move with WASD or arrow keys"));
+        if (inviteAddress != null) {
+            lobbyControls.add(new JLabel("  Invite address: " + inviteAddress));
+            JButton startButton = new JButton("Start Match");
+            startButton.setFocusable(false);
+            startButton.addActionListener(e -> startMatch.run());
+            lobbyControls.add(startButton);
+        }
+        lobbyControls.setVisible(false);
+        add(lobbyControls, BorderLayout.NORTH);
+
         // Keyboard input for movement (attached to window, not sub-panel)
         InputController ic = new InputController(client);
         addKeyListener(ic);
@@ -39,6 +52,12 @@ public class GameScreen extends JFrame {
         pack();
         setLocationRelativeTo(null);
         setResizable(false);
+        addWindowFocusListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowLostFocus(java.awt.event.WindowEvent event) {
+                ic.clearHeldKeys();
+            }
+        });
     }
 
     /**
@@ -48,6 +67,11 @@ public class GameScreen extends JFrame {
         SwingUtilities.invokeLater(() -> {
             gameCanvas.setGameState(state);
             gameCanvas.setMyPlayerId(myPlayerId);
+            boolean waiting = state.getCurrentPhase() == GameState.Phase.WAITING;
+            if (lobbyControls.isVisible() != waiting) {
+                lobbyControls.setVisible(waiting);
+                pack();
+            }
             hudPanel.setData(state, myPlayerId);
             hudPanel.repaint();
         });

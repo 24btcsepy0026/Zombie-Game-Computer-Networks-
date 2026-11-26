@@ -84,7 +84,7 @@ public class ClientHandler implements Runnable {
 
         } else if (msg instanceof MoveCommand) {
             Player p = gameState.getPlayer(playerId);
-            if (p == null || gameState.getCurrentPhase() != GameState.Phase.PLAYING) return;
+            if (p == null || gameState.getCurrentPhase() == GameState.Phase.GAME_OVER) return;
 
             MoveCommand mc = (MoveCommand) msg;
             int dx = mc.getDx();

@@ -221,7 +221,6 @@ public class MainMenuScreen extends JPanel {
             case MULTIPLAYER -> {
                 if (index == 0) {
                     if (listener != null) listener.onInviteMembersHost();
-                    setView(ViewState.INVITE_LOBBY);
                 } else if (index == 1) {
                     if (listener != null) listener.onJoinLobby();
                 } else if (index == 2) {

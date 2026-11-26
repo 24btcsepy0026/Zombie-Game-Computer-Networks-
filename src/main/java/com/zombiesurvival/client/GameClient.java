@@ -157,6 +157,10 @@ public class GameClient {
     // ── Flow Actions ─────────────────────────────────────────────────────────
 
     public void openGameScreen() {
+        openGameScreen(null);
+    }
+
+    private void openGameScreen(String inviteAddress) {
         if (gameScreen != null) return;
 
         if (menuFrame != null) {
@@ -168,7 +172,7 @@ public class GameClient {
             menuFrame = null;
         }
 
-        gameScreen = new GameScreen(this);
+        gameScreen = new GameScreen(this, inviteAddress, this::handleStartMultiplayerMatch);
         gameScreen.setVisible(true);
 
         if (lastGameState != null) {
@@ -189,13 +193,8 @@ public class GameClient {
     private void handleInviteMembersHost() {
         ensureLocalServerRunning();
         String name = System.getProperty("user.name", "Host");
-        if (socket == null || socket.isClosed()) {
-            start("localhost", name);
-        }
-        if (currentMenuScreen != null) {
-            currentMenuScreen.setPlayerName(name);
-            currentMenuScreen.setHostPlayerName(name);
-            currentMenuScreen.setView(MainMenuScreen.ViewState.INVITE_LOBBY);
+        if (start("localhost", name)) {
+            openGameScreen(currentMenuScreen.getLocalIpAddress() + ":" + PORT);
         }
     }
 
@@ -227,10 +226,7 @@ public class GameClient {
             if (name.isEmpty()) name = "Player";
 
             if (start(ip, port, name)) {
-                if (currentMenuScreen != null) {
-                    currentMenuScreen.setPlayerName(name);
-                    currentMenuScreen.setView(MainMenuScreen.ViewState.CLIENT_LOBBY);
-                }
+                openGameScreen();
             }
         }
     }
