@@ -17,6 +17,7 @@ public class GameEngine implements Runnable {
     private static final int  DAMAGE_PER_TICK   = 1;   // HP lost per tick while in zombie contact
     private static final int  HEAL_TICKS        = 30;  // ticks between safe-zone heals (+1 HP each)
     private static final int  SCORE_TICKS       = 30;  // ticks between survivor score awards (+1)
+    private static final int  MEDKIT_RESPAWN_TICKS = 20 * TPS;
     private static final int  GAME_DURATION_S   = 120;
     private static final int  RESET_DELAY_S     = 10;
 
@@ -29,6 +30,7 @@ public class GameEngine implements Runnable {
 
     private final GameState gameState;
     private final GameServer server;
+    private final Map<Pickup, Integer> medkitRespawnTicks = new HashMap<>();
     private int  tickCount    = 0;
     private long gameOverTime = 0;
     private boolean running   = true;
@@ -166,7 +168,9 @@ public class GameEngine implements Runnable {
 
 
     private void spawnPickups() {
+        medkitRespawnTicks.clear();
         gameState.getPickups().clear();
+        medkitRespawnTicks.clear();
         int ts = GameState.TILE_SIZE;
         int off = 5; // pixel offset from tile corner
         List<Pickup> pickups = new ArrayList<>();
@@ -240,10 +244,20 @@ public class GameEngine implements Runnable {
         List<Pickup> pickups = gameState.getPickups();
         synchronized (pickups) {
             for (Pickup pk : pickups) {
-                if (pk.isCollected()) continue;
+                boolean medkit = pk.getType() == Pickup.Type.MEDKIT;
+                if (pk.isCollected()) {
+                    Integer respawnTick = medkitRespawnTicks.get(pk);
+                    if (respawnTick == null || tickCount < respawnTick) continue;
+                    medkitRespawnTicks.remove(pk);
+                    pk.setCollected(false);
+                }
                 for (Player p : all) {
+                    if (medkit && (p.isInfected() || p.getHealth() >= 100)) continue;
                     if (overlapsPickup(p, pk)) {
                         pk.setCollected(true);
+                        if (medkit) {
+                            medkitRespawnTicks.put(pk, tickCount + MEDKIT_RESPAWN_TICKS);
+                        }
                         applyPickup(p, pk);
                         break;
                     }
@@ -372,6 +386,7 @@ public class GameEngine implements Runnable {
             p.setScore(0);
         }
         gameState.getPickups().clear();
+        medkitRespawnTicks.clear();
         gameState.getChatLog().clear();
         gameState.setTimeRemaining(GAME_DURATION_S);
         gameState.setWinnerMessage("");

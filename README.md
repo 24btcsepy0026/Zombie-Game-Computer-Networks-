@@ -26,7 +26,7 @@ The game now features an eye-catching main menu with:
 
 - One player is randomly assigned as the **Zombie 🧟** — the rest are **Survivors 🧍**
 - Zombies chase and infect survivors by contact (drains HP → 0 = infected)
-- Survivors collect **Medkits ❤** (+40 HP, +10 score) and **Keys 🔑** (+50 score)
+- Survivors collect **Medkits ❤** (injured survivors recover up to 40 HP and gain 10 score, with medkits respawning after 20 seconds) and **Keys 🔑** (+50 score)
 - **Safe Zones** heal survivors +2 HP/sec and slow zombies by 50%
 - Timer: **120 seconds** — if any survivor stays alive, survivors win!
 - After Game Over, the server auto-resets in 10 seconds
