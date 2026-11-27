@@ -184,6 +184,12 @@ public class GameState implements Serializable {
         return MAP[row][col] == 2;
     }
 
+    /** SE Factory Extraction Bunker interior (cols 50..61, rows 51..55). */
+    public static boolean isExtractionBunkerAt(int px, int py) {
+        int col = px / TILE_SIZE, row = py / TILE_SIZE;
+        return col >= 50 && col <= 61 && row >= 51 && row <= 55;
+    }
+
     // ── Phase & Mode ──────────────────────────────────────────────────────────
     public enum Phase    { WAITING, PLAYING, GAME_OVER }
     public enum GameMode { SOLO, MULTIPLAYER }
@@ -195,6 +201,8 @@ public class GameState implements Serializable {
     private int      timeRemaining     = 180;   // 3 minutes
     private String   winnerMessage     = "";
     private int      gameOverCountdown = 10;
+    private int      keysCollected     = 0;
+    private int      keysRequired      = 3;
 
     // Players
     private final Map<String, Player>   players   = new ConcurrentHashMap<>();
@@ -226,6 +234,11 @@ public class GameState implements Serializable {
 
     public int    getGameOverCountdown()         { return gameOverCountdown; }
     public void   setGameOverCountdown(int c)    { this.gameOverCountdown = c; }
+
+    public int    getKeysCollected()             { return keysCollected; }
+    public void   setKeysCollected(int k)        { this.keysCollected = k; }
+    public void   addKeyCollected()              { this.keysCollected++; }
+    public int    getKeysRequired()              { return keysRequired; }
 
     public Map<String, Player>   getPlayers()    { return players; }
     public Player                getPlayer(String id) { return id != null ? players.get(id) : null; }

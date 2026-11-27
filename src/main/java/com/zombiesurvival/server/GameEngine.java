@@ -194,7 +194,7 @@ public class GameEngine implements Runnable {
                 p.setInfected(false);
                 // Starter gear for survivors
                 p.setCurrentWeapon(Weapon.PISTOL);
-                p.setPistolAmmo(15);
+                p.setPistolAmmo(state.getGameMode() == GameState.GameMode.SOLO ? 45 : 15);
             }
         }
 
@@ -202,6 +202,7 @@ public class GameEngine implements Runnable {
         spawnNpcs();
         state.getBullets().clear();
         state.getKillFeed().clear();
+        state.setKeysCollected(0);
         state.setTimeRemaining(GAME_DURATION);
         state.setCurrentPhase(GameState.Phase.PLAYING);
         System.out.println("[GameEngine] Game started! " + players.size() + " players, " + zombieCount + " zombies.");
@@ -221,8 +222,9 @@ public class GameEngine implements Runnable {
             }
         }
 
-        // Escalating zombie wave + supply drop every 45 seconds
-        if (tickCount > 0 && tickCount % (TPS * 45) == 0) {
+        // Escalating zombie wave + supply drop (25s in SOLO, 40s in MULTIPLAYER)
+        int waveInterval = (state.getGameMode() == GameState.GameMode.SOLO) ? TPS * 25 : TPS * 40;
+        if (tickCount > 0 && tickCount % waveInterval == 0) {
             spawnWaveReinforcements();
         }
 
@@ -243,14 +245,14 @@ public class GameEngine implements Runnable {
     }
 
     private void spawnWaveReinforcements() {
-        // Spawn 3 extra NPC zombies around the crossroads/edges (cap at 25 alive)
+        boolean solo = (state.getGameMode() == GameState.GameMode.SOLO);
+        int maxNpcs = solo ? 65 : 40;
+        int waveAdd = solo ? 5 : 4;
         long aliveNpcs = state.getNpcZombies().values().stream().filter(NpcZombie::isAlive).count();
-        int[][] waveSpawns = { { 39, 29 }, { 20, 29 }, { 60, 29 }, { 39, 10 }, { 39, 50 } };
-        for (int i = 0; i < 3 && aliveNpcs + i < 25; i++) {
-            int[] s = waveSpawns[rng.nextInt(waveSpawns.length)];
+        for (int i = 0; i < waveAdd && aliveNpcs + i < maxNpcs; i++) {
+            float[] pos = randomWalkablePos();
             String id = "npc" + npcIdSeq.incrementAndGet();
-            state.getNpcZombies().put(id, new NpcZombie(id,
-                    s[0] * GameState.TILE_SIZE + 4f, s[1] * GameState.TILE_SIZE + 4f));
+            state.getNpcZombies().put(id, new NpcZombie(id, pos[0], pos[1]));
         }
         // Drop a supply crate (Medkit + Ammo + Random Gun) at the central crossroads
         int cx = 39 * GameState.TILE_SIZE;
@@ -423,23 +425,34 @@ public class GameEngine implements Runnable {
 
     // ── NPC AI ────────────────────────────────────────────────────────────────
 
+    private float[] randomWalkablePos() {
+        for (int tries = 0; tries < 50; tries++) {
+            int col = 2 + rng.nextInt(GameState.MAP_WIDTH - 4);
+            int row = 2 + rng.nextInt(GameState.MAP_HEIGHT - 4);
+            if (GameState.MAP[row][col] == 0) {
+                return new float[] { col * GameState.TILE_SIZE + 4f, row * GameState.TILE_SIZE + 4f };
+            }
+        }
+        return new float[] { 39 * GameState.TILE_SIZE + 4f, 29 * GameState.TILE_SIZE + 4f };
+    }
+
     private void spawnNpcs() {
         state.getNpcZombies().clear();
-        int[][] npcSpawns = {
-                { 39, 29 }, { 20, 29 }, { 60, 29 }, { 39, 10 }, { 39, 50 },
-                { 5, 10 }, { 74, 10 }, { 5, 50 }, { 74, 50 },
-                { 10, 20 }, { 68, 20 }, { 10, 40 }, { 68, 40 },
-                { 25, 35 }, { 55, 35 }
-        };
-        for (int i = 0; i < NPC_COUNT; i++) {
-            int[] s = npcSpawns[i % npcSpawns.length];
+        boolean solo = (state.getGameMode() == GameState.GameMode.SOLO);
+        int count = solo ? 45 : 25;
+        for (int i = 0; i < count; i++) {
+            float[] pos = randomWalkablePos();
+            // Keep a small safe buffer around the player's starting spawn
+            boolean nearPlayer = false;
+            for (Player p : state.getPlayers().values()) {
+                float dx = pos[0] - p.getXf(), dy = pos[1] - p.getYf();
+                if (dx * dx + dy * dy < 160f * 160f) { nearPlayer = true; break; }
+            }
+            if (nearPlayer) { i--; continue; }
             String id = "npc" + npcIdSeq.incrementAndGet();
-            NpcZombie npc = new NpcZombie(id,
-                    s[0] * GameState.TILE_SIZE + 4f,
-                    s[1] * GameState.TILE_SIZE + 4f);
-            state.getNpcZombies().put(id, npc);
+            state.getNpcZombies().put(id, new NpcZombie(id, pos[0], pos[1]));
         }
-        System.out.println("[Engine] Spawned " + NPC_COUNT + " NPC zombies.");
+        System.out.println("[Engine] Spawned " + count + " NPC zombies.");
     }
 
     private void tickNpcs() {
@@ -471,10 +484,12 @@ public class GameEngine implements Runnable {
             float dy = nearest.getYf() - npc.getY();
             float dist = (float) Math.sqrt(dx * dx + dy * dy);
 
-            if (dist < NPC_CHASE_RANGE) {
+            float chaseRange = (state.getGameMode() == GameState.GameMode.SOLO) ? 280f : NPC_CHASE_RANGE;
+            float npcSpeed   = NPC_SPEED;
+            if (dist < chaseRange) {
                 // Chase
-                float nx = npc.getX() + (dx / dist) * NPC_SPEED;
-                float ny = npc.getY() + (dy / dist) * NPC_SPEED;
+                float nx = npc.getX() + (dx / dist) * npcSpeed;
+                float ny = npc.getY() + (dy / dist) * npcSpeed;
                 if (!GameState.isWallAt((int) nx, (int) ny)) {
                     npc.setX(nx);
                     npc.setY(ny);
@@ -594,6 +609,16 @@ public class GameEngine implements Runnable {
             }
             case KEY -> {
                 p.addScore(50);
+                state.addKeyCollected();
+                if (state.getGameMode() == GameState.GameMode.SOLO) {
+                    int k = state.getKeysCollected();
+                    int req = state.getKeysRequired();
+                    if (k >= req) {
+                        server.broadcastChat("🚁 ALL " + req + " KEYS FOUND! Reach the SE Factory Bunker to ESCAPE!", "ESCAPE");
+                    } else {
+                        server.broadcastChat("🔑 Escape Key found! (" + k + "/" + req + ")", "ESCAPE");
+                    }
+                }
             }
             case ARMOR -> {
                 p.addArmor(40);
@@ -662,9 +687,23 @@ public class GameEngine implements Runnable {
 
     private void checkWinConditions() {
         long survivors = state.getPlayers().values().stream().filter(p -> !p.isInfected()).count();
-        if (survivors == 0 && !state.getPlayers().isEmpty())
+        if (survivors == 0 && !state.getPlayers().isEmpty()) {
             endGame("☣  ZOMBIES WIN!");
-        else if (state.getTimeRemaining() <= 0 && survivors > 0)
+            return;
+        }
+        // Solo Escape Win: collect 3 keys & enter SE Factory Extraction Bunker
+        if (state.getGameMode() == GameState.GameMode.SOLO
+                && state.getKeysCollected() >= state.getKeysRequired()) {
+            for (Player p : state.getPlayers().values()) {
+                if (!p.isInfected() && p.getHealth() > 0
+                        && GameState.isExtractionBunkerAt(p.getX() + Player.SIZE / 2, p.getY() + Player.SIZE / 2)) {
+                    p.addScore(500);
+                    endGame("🚁  ESCAPED THE BUNKER! YOU WIN!");
+                    return;
+                }
+            }
+        }
+        if (state.getTimeRemaining() <= 0 && survivors > 0)
             endGame("🧍  SURVIVORS WIN!");
     }
 

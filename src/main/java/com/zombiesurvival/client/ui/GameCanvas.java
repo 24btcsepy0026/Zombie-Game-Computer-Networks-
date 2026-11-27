@@ -368,6 +368,7 @@ public class GameCanvas extends JPanel {
 
         drawTiles       (g,sc,ec,sr,er);
         drawGroundDecals(g,cx,cy,vw,vh);
+        drawExtractionBunker(g,gs);
         drawBuildingFloors(g,sc,ec,sr,er);
         drawWallFaces   (g,sc,ec,sr,er);
         drawProps       (g,cx,cy,vw,vh);
@@ -381,6 +382,7 @@ public class GameCanvas extends JPanel {
 
         g.translate(cx,cy);
 
+        drawObjectiveBanner(g,gs);
         drawMinimap  (g,gs,vw,vh);
         drawCrosshair(g,gs,vw,vh);
         drawVignette (g,gs,vw,vh);
@@ -872,6 +874,50 @@ public class GameCanvas extends JPanel {
         }
     }
 
+    private void drawExtractionBunker(Graphics2D g, GameState gs) {
+        if (gs.getGameMode() != GameState.GameMode.SOLO) return;
+        int bx = 50 * TS, by = 51 * TS, bw = 12 * TS, bh = 5 * TS;
+        boolean unlocked = gs.getKeysCollected() >= gs.getKeysRequired();
+        float pulse = 0.5f + 0.5f * (float) Math.sin(animTick * 0.10);
+
+        g.setColor(unlocked ? new Color(40, 220, 90, (int)(45 + 45 * pulse))
+                            : new Color(220, 160, 30, 35));
+        g.fillRect(bx, by, bw, bh);
+
+        g.setColor(unlocked ? new Color(60, 255, 110, 220) : new Color(230, 175, 40, 160));
+        g.setStroke(new BasicStroke(2.5f));
+        g.drawRect(bx, by, bw, bh);
+        g.setStroke(new BasicStroke(1f));
+
+        // Helipad circle
+        int cx = bx + bw / 2, cy = by + bh / 2;
+        g.drawOval(cx - 28, cy - 28, 56, 56);
+        g.setFont(new Font("Impact", Font.BOLD, 22));
+        drawCentered(g, "H", cx, cy + 8);
+
+        g.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        String lbl = unlocked ? "EXTRACTION READY - STEP INSIDE TO ESCAPE!"
+                              : "EXTRACTION BUNKER (COLLECT " + gs.getKeysRequired() + " KEYS)";
+        drawCentered(g, lbl, cx, by - 6);
+    }
+
+    private void drawObjectiveBanner(Graphics2D g, GameState gs) {
+        if (gs.getGameMode() != GameState.GameMode.SOLO) return;
+        int k = gs.getKeysCollected(), req = gs.getKeysRequired();
+        boolean unlocked = k >= req;
+        String text = unlocked
+                ? "ESCAPE UNLOCKED! Reach the Green Bunker (SE Factory) to WIN!"
+                : "SOLO ESCAPE: Collect Keys (" + k + "/" + req + ") [Gold on Map] -> SE Bunker";
+
+        g.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        int tw = g.getFontMetrics().stringWidth(text);
+        g.setColor(new Color(10, 12, 16, 200));
+        g.fillRoundRect(12, 12, tw + 24, 28, 8, 8);
+        g.setColor(unlocked ? new Color(60, 235, 100) : new Color(235, 185, 50));
+        g.drawRoundRect(12, 12, tw + 24, 28, 8, 8);
+        g.drawString(text, 24, 30);
+    }
+
     // ── 13. Minimap (LDOE dark style) ────────────────────────────────────────
     private void drawMinimap(Graphics2D g, GameState gs, int vw, int vh) {
         int mmW=180,mmH=134,mmX=vw-mmW-12,mmY=vh-mmH-12;
@@ -901,6 +947,24 @@ public class GameCanvas extends JPanel {
             if (!npc.isAlive()) continue;
             g.setColor(new Color(180,35,35,180));
             g.fillOval(mmX+(int)(npc.getX()*sx)-2,mmY+(int)(npc.getY()*sy)-2,4,4);
+        }
+
+        // Extraction Bunker (SE Factory) marker on minimap in SOLO mode
+        if (gs.getGameMode() == GameState.GameMode.SOLO) {
+            boolean unlocked = gs.getKeysCollected() >= gs.getKeysRequired();
+            g.setColor(unlocked ? new Color(60, 255, 110) : new Color(240, 175, 40));
+            int bx = mmX + (int)(55 * TS * sx), by = mmY + (int)(53 * TS * sy);
+            g.fillRect(bx - 4, by - 4, 8, 8);
+            g.setColor(Color.WHITE);
+            g.drawRect(bx - 4, by - 4, 8, 8);
+
+            // Key pickups (bright gold dots)
+            for (Pickup pk : gs.getPickups()) {
+                if (!pk.isCollected() && pk.getType() == Pickup.Type.KEY) {
+                    g.setColor(new Color(255, 220, 40));
+                    g.fillOval(mmX + (int)(pk.getX() * sx) - 2, mmY + (int)(pk.getY() * sy) - 2, 5, 5);
+                }
+            }
         }
 
         // Players
