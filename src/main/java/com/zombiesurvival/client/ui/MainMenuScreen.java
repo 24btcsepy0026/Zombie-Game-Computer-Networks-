@@ -293,23 +293,30 @@ public class MainMenuScreen extends JPanel {
 
     private void detectLocalIp() {
         try {
+            String fallback = null;
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface iface = interfaces.nextElement();
-                if (iface.isLoopback() || !iface.isUp()) continue;
+                if (iface.isLoopback() || !iface.isUp() || iface.isVirtual()) continue;
+                String dname = (iface.getDisplayName() + " " + iface.getName()).toLowerCase();
+                boolean isVirtualAdapter = dname.contains("virtualbox") || dname.contains("vmware")
+                        || dname.contains("vethernet") || dname.contains("hyper-v")
+                        || dname.contains("host-only") || dname.contains("loopback");
                 Enumeration<InetAddress> addrs = iface.getInetAddresses();
                 while (addrs.hasMoreElements()) {
                     InetAddress addr = addrs.nextElement();
                     if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress()) {
                         String host = addr.getHostAddress();
-                        if (!host.startsWith("127.")) {
+                        if (host.startsWith("127.") || host.startsWith("192.168.56.")) continue;
+                        if (!isVirtualAdapter) {
                             this.localIpAddress = host;
                             return;
                         }
+                        if (fallback == null) fallback = host;
                     }
                 }
             }
-            this.localIpAddress = InetAddress.getLocalHost().getHostAddress();
+            this.localIpAddress = (fallback != null) ? fallback : InetAddress.getLocalHost().getHostAddress();
         } catch (Exception e) {
             this.localIpAddress = "127.0.0.1";
         }
