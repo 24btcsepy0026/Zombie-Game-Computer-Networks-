@@ -552,14 +552,14 @@ public class GameCanvas extends JPanel {
             g.setColor(new Color(col.getRed(),col.getGreen(),col.getBlue(),(int)(40*glow)));
             int gr=12; g.fillOval((int)(px-gr),(int)(py-gr+bob),gr*2,gr*2);
             // Item box (dark background)
-            g.setColor(new Color(20,18,14,210)); g.fillRoundRect((int)(px-8),(int)(py-8+bob),16,16,4,4);
+            g.setColor(new Color(20,18,14,215)); g.fillRoundRect((int)(px-10),(int)(py-10+bob),20,20,6,6);
             g.setColor(col); g.setStroke(new BasicStroke(1.2f));
-            g.drawRoundRect((int)(px-8),(int)(py-8+bob),16,16,4,4); g.setStroke(new BasicStroke(1f));
-            // Icon letter
-            g.setFont(new Font("Segoe UI",Font.BOLD,9));
+            g.drawRoundRect((int)(px-10),(int)(py-10+bob),20,20,6,6); g.setStroke(new BasicStroke(1f));
+            // Emoji icon
+            g.setFont(new Font("Segoe UI Emoji",Font.PLAIN,12));
             String ic=pickupIcon(pk.getType());
             g.setColor(col);
-            FontMetrics fm=g.getFontMetrics(); g.drawString(ic,(int)(px-fm.stringWidth(ic)/2f),(int)(py+3+bob));
+            FontMetrics fm=g.getFontMetrics(); g.drawString(ic,(int)(px-fm.stringWidth(ic)/2f),(int)(py+5+bob));
         }
     }
 
@@ -575,12 +575,21 @@ public class GameCanvas extends JPanel {
     }
     private String pickupIcon(Pickup.Type t) {
         return switch(t) {
-            case MEDKIT   -> "MK"; case BANDAGE -> "BD"; case KEY -> "K";
-            case ARMOR    -> "AR"; case VEST -> "VS";  case HELMET -> "HM"; case BOOTS -> "BT";
-            case SPEED_BOOST -> "SP";
-            case PISTOL   -> "PI"; case SHOTGUN -> "SH"; case RIFLE -> "RI"; case BAT -> "BA";
-            case PISTOL_AMMO -> "9m"; case RIFLE_AMMO -> "5.5"; case SHOTGUN_AMMO -> "12g";
-            default        -> "?";
+            case MEDKIT       -> "💊";
+            case BANDAGE      -> "🩹";
+            case KEY          -> "🔑";
+            case ARMOR        -> "🛡";
+            case VEST         -> "🦺";
+            case HELMET       -> "🪖";
+            case BOOTS        -> "🥾";
+            case SPEED_BOOST  -> "⚡";
+            case PISTOL       -> "🔫";
+            case SHOTGUN      -> "💥";
+            case RIFLE        -> "🎯";
+            case BAT          -> "🏏";
+            case PISTOL_AMMO, RIFLE_AMMO, SHOTGUN_AMMO -> "📦";
+            case GRENADE      -> "💣";
+            case MOLOTOV      -> "🔥";
         };
     }
 
